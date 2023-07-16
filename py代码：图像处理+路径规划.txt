@@ -1,0 +1,3883 @@
+1.存在白线干扰版本
+import cv2
+import numpy as np
+
+def extract_maze(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 应用Canny边缘检测
+    edges = cv2.Canny(gray, 50, 150)
+
+    # 膨胀操作，填充边缘间隙
+    kernel = np.ones((3, 3), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 找到最大的矩形轮廓
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(gray)
+
+    # 填充最大轮廓
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, -1)
+
+    # 按位与操作，去除黑色矩形部分
+    result = cv2.bitwise_and(image, image, mask=mask)
+
+    # 进行透视变换，提取迷宫图
+    if max_contour is not None:
+        # 近似多边形轮廓
+        epsilon = 0.05 * cv2.arcLength(max_contour, True)
+        approx = cv2.approxPolyDP(max_contour, epsilon, True)
+
+        # 获取矩形的顶点坐标
+        rect_pts = approx.reshape(4, 2)
+
+        # 裁剪图像到有效区域内
+        x, y, w, h = cv2.boundingRect(max_contour)
+        result = result[y:y+h, x:x+w]
+
+        # 转换为灰度图像
+        gray_result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+
+        # 二值化图像
+        _, thresholded = cv2.threshold(gray_result, 127, 255, cv2.THRESH_BINARY)
+
+        # 去除边缘黑色块
+        thresholded = remove_black_border(thresholded)
+
+        # 调整图像大小以适应屏幕显示
+        resized = cv2.resize(thresholded, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_LINEAR)
+
+        # 保存提取后的迷宫图像
+        cv2.imwrite("maze.png", resized)
+
+        # 显示结果（可选）
+        cv2.imshow("Result", resized)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+def remove_black_border(image):
+    # 寻找图像的外边框
+    contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 计算最大外边框的边界框
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(image)
+
+    # 填充最大外边框
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, cv2.FILLED)
+
+    # 按位与操作，去除黑色边框
+    result = cv2.bitwise_and(image, mask)
+
+    return result
+
+# 调用函数并传入迷宫图像的文件路径
+image_path = "111.bmp"
+extract_maze(image_path)
+
+import cv2
+import numpy as np
+
+def crop_and_transform(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 二值化图像
+    _, thresholded = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 选择最大轮廓
+    max_contour = max(contours, key=cv2.contourArea)
+
+    # 获取最大轮廓的边界框
+    x, y, w, h = cv2.boundingRect(max_contour)
+
+    # 定义保留的黑边大小
+    border_size = 2
+
+    # 裁剪图像并保留一定的黑边
+    cropped_image = image[max(0, y - border_size):y + h + border_size, max(0, x - border_size):x + w + border_size]
+
+    # 获取裁剪后图像的大小
+    cropped_h, cropped_w = cropped_image.shape[:2]
+
+    # 定义透视变换前后的四个点
+    src_pts = np.float32([[0, 0], [cropped_w, 0], [0, cropped_h], [cropped_w, cropped_h]])
+    dst_pts = np.float32([[border_size, border_size], [cropped_w - border_size, border_size], [border_size, cropped_h - border_size], [cropped_w - border_size, cropped_h - border_size]])
+
+    # 计算透视变换矩阵
+    transform_matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+
+    # 进行透视变换
+    transformed_image = cv2.warpPerspective(cropped_image, transform_matrix, (cropped_w, cropped_h))
+
+    # 显示结果
+    cv2.imshow("Cropped and Transformed Image", transformed_image)
+    cv2.imwrite("auto.png",transformed_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+# 调用函数并传入图像文件路径
+image_path = "maze.png"
+crop_and_transform(image_path)
+
+
+
+2.宝藏识别（霍夫曼圆）+路径规划（1min）
+import itertools
+import time
+
+import matplotlib.pyplot as plt
+
+# 定义 A* 算法和启发函数
+import heapq
+import random
+start_time = time.time()
+
+
+
+import cv2
+import numpy as np
+from PIL import Image
+
+# 读取迷宫图像
+img = cv2.imread('auto.png', cv2.IMREAD_GRAYSCALE)
+# 霍夫圆变换
+circles = cv2.HoughCircles(img, cv2.HOUGH_GRADIENT, dp=1, minDist=5, param1=30, param2=10, minRadius=1, maxRadius=10)
+
+if circles is not None:
+    # 将圆心坐标和半径转换为整数
+    circles = np.round(circles[0, :]).astype(int)
+
+    # 创建与图像大小相同的黑色图像
+    mask = np.zeros_like(img)
+
+    # 绘制圆形掩膜，将圆内部区域填充为白色
+    for (x, y,r) in circles:
+        cv2.circle(img, (x , y), r+3,
+                   (255, 255, 255), thickness=cv2.FILLED)
+
+
+    # 将原图像与掩膜进行与运算，将圆内部区域变为黑色
+
+    cv2.imwrite("process.png", img)
+
+    # 将坐标映射到21x21的坐标
+    matrix_coordinates = []
+    for (x, y, r) in circles:
+        col = int((x / img.shape[1]) * 20)
+        row = int((y / img.shape[0]) * 20)
+
+        matrix_coordinates.append((row, col))
+
+    # 将宝藏的坐标整合成二维数组
+    cherish = np.array(matrix_coordinates)
+
+    # 输出宝藏的二维数组
+    print("宝藏坐标：")
+    print(cherish)
+else:
+    print("未找到宝藏")
+
+
+img=img = cv2.resize(img, (601, 595))
+# 定义结构元素和迭代次数
+kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+iterations = 9
+
+# 形态学处理：膨胀、腐蚀
+dilated = cv2.dilate(img, kernel, iterations=iterations)
+eroded = cv2.erode(img, kernel, iterations=iterations)
+
+# 求差值并阈值处理
+diff = cv2.absdiff(dilated, eroded)
+_, thresholded = cv2.threshold(diff, 50, 255, cv2.THRESH_BINARY)
+
+# 保存处理后的图像
+cv2.imwrite("processed.png", thresholded)
+
+# 加载图像
+img = Image.open('processed.png')
+
+# 将图像转换为黑白图像，并将其缩放到合适的大小
+img = img.convert('L').resize((441, 441))
+
+# 获取图像像素值
+pixels = np.asarray(img)
+
+# 将图像分割为 19*19 个小块
+blocks = np.split(pixels, 21)
+blocks = [np.split(block, 21, axis=1) for block in blocks]
+blocks = np.array(blocks)
+
+# 计算每个小块中白色像素的数量占总像素数的比例
+ratios = np.zeros((21, 21))
+for i in range(21):
+    for j in range(21):
+        white_pixels = np.sum(blocks[i, j] < 128)
+        ratios[i, j] = white_pixels / blocks[i, j].size
+
+# 调整阈值，优化识别结果
+threshold = 0.5
+matrix = (ratios < threshold).astype(int)
+print(matrix)
+
+
+
+
+
+
+corrected_coordinates = []
+
+for x, y in cherish:
+    # 检测坐标对应的矩阵值是否为墙壁（值为1）
+    if matrix[x][y] == 1:
+        # 宝藏处为墙壁，向远离墙壁的方向微调坐标
+        if x in [0, 20] and y in [0, 20]:
+            # 宝藏处在角落，将其移动到非角落的位置
+            if x == 0:
+                x += 1
+            else:
+                x -= 1
+            if y == 0:
+                y += 1
+            else:
+                y -= 1
+        else:
+            # 宝藏处不在角落，不进行微调
+            pass
+
+        # 额外逻辑：真正宝藏所在坐标和修正前坐标横纵坐标之间的差值绝对值都不超过1
+        dx = abs(x - cherish[0][0])
+        dy = abs(y - cherish[0][1])
+        if dx <= 1 and dy <= 1:
+            x = cherish[0][0]
+            y = cherish[0][1]
+
+        # 额外逻辑：遍历宝藏坐标周围的点，如果某个点上下左右有三个为墙，则将其设为修正后的坐标
+        for i in range(x - 1, x + 2):
+            for j in range(y - 1, y + 2):
+                if 0 <= i < 21 and 0 <= j < 21 and matrix[i][j] == 0:
+                    wall_count = 0
+                    if i - 1 >= 0 and matrix[i - 1][j] == 1:
+                        wall_count += 1
+                    if i + 1 < 21 and matrix[i + 1][j] == 1:
+                        wall_count += 1
+                    if j - 1 >= 0 and matrix[i][j - 1] == 1:
+                        wall_count += 1
+                    if j + 1 < 21 and matrix[i][j + 1] == 1:
+                        wall_count += 1
+
+                    if wall_count == 3:
+                        x = i
+                        y = j
+
+    corrected_coordinates.append((x, y))
+
+cherish = corrected_coordinates
+
+# 打印修正后的宝藏坐标
+print("修正后的宝藏坐标：", cherish)
+
+
+
+
+# 将结果写入 txt 文件
+np.savetxt('maze.txt', matrix, fmt='%s')
+
+def heuristic(a, b):
+    # 曼哈顿距离
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def astar(array, start, end):
+    neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+    close_set = set()
+    came_from = {}
+    gscore = {start: 0}
+    fscore = {start: heuristic(start, end)}
+    oheap = []
+
+    heapq.heappush(oheap, (fscore[start], start))
+
+    while oheap:
+        current = heapq.heappop(oheap)[1]
+        if current == end:
+            data = []
+            while current in came_from:
+                data.append(current)
+                current = came_from[current]
+            return data
+        close_set.add(current)
+        for i, j in neighbors:
+            neighbor = current[0] + i, current[1] + j
+            tentative_g_score = gscore[current] + heuristic(current, neighbor)
+            if 0 <= neighbor[0] < array.shape[0]:
+                if 0 <= neighbor[1] < array.shape[1]:
+                    if array[neighbor[0]][neighbor[1]] == 1:
+                        continue
+                else:
+                    # 超出边界
+                    continue
+            else:
+                # 超出边界
+                continue
+
+            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, 0):
+                continue
+
+            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
+                came_from[neighbor] = current
+                gscore[neighbor] = tentative_g_score
+                fscore[neighbor] = tentative_g_score + heuristic(neighbor, end)
+                heapq.heappush(oheap, (fscore[neighbor], neighbor))
+
+    return []
+
+
+# 生成 20x20的迷宫
+maze = matrix
+
+# 获得所有排列结果
+permutations = itertools.permutations(cherish)
+
+def get_min_path(maze,start,end):
+    # 获取最短路径
+    path = astar(maze, start, end)
+    cost = len(path)
+    return cost
+
+def Visual_path(maze,start,end,i):
+    # 获取最短路径
+    path = astar(maze, start, end)
+    if not path:
+            print("无法到达终点！")
+    else:
+            if i == 7:
+                print('从第8个宝藏到终点的最短路径', path[::-1])
+            else:
+                print("到第",i+1,'个宝藏的最短路径', path[::-1])
+
+            # 绘制迷宫图
+            fig, ax = plt.subplots()
+            ax.imshow(1 - maze, cmap=plt.cm.binary)
+
+            # 绘制起点和终点
+            ax.scatter(start[1], start[0], marker="*", color="yellow", s=200)
+            ax.scatter(end[1], end[0], marker="*", color="red", s=200)
+
+            # 绘制最短路径
+            for pos in path:
+                ax.plot(pos[1], pos[0], marker="o", color="blue", markersize=10)
+            if i==7:
+                plt.show()
+
+cost_min = 175
+cost_min_cherish = []
+MAX_DISTANCE = 174
+for p in permutations:
+    cherish = list(p)
+    cherish.insert(0,(1,1))
+    cherish.append((19,19))
+    cost = 0
+    if min(heuristic((1, 1), cherish[1]), heuristic((1, 1), cherish[2])) > max(
+            heuristic((1, 1), cherish[-2]), heuristic((1, 1), cherish[-3])):
+        continue
+    for j in range(len(cherish)-1):
+        cost += get_min_path(maze, cherish[j], cherish[j+1])
+        if cost >= cost_min or cost > MAX_DISTANCE:
+            break
+
+    if cost_min > cost:
+        cost_min = cost
+        cost_min_cherish = cherish
+print('最短路径长度为', cost_min)
+
+for i in range(0,8):
+    Visual_path(maze,cost_min_cherish[i],cost_min_cherish[i+1],i)
+
+end_time = time.time()
+run_time = end_time - start_time
+print("程序运行时间为：{:.2f}秒".format(run_time))
+
+
+#matrix为二维迷宫数组
+print(matrix)
+#cherish为宝藏坐标
+#print(cherish)
+
+
+
+
+3.贪心法选择下一个起点
+import itertools
+import time
+import serial.tools.list_ports
+import matplotlib.pyplot as plt
+
+# 定义 A* 算法和启发函数
+import heapq
+start_time = time.time()
+import serial
+from PIL import Image
+import cv2
+import numpy as np
+
+
+def extract_maze(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 应用Canny边缘检测
+    edges = cv2.Canny(gray, 50, 150)
+
+    # 膨胀操作，填充边缘间隙
+    kernel = np.ones((3, 3), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 找到最大的矩形轮廓
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(gray)
+
+    # 填充最大轮廓
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, -1)
+
+    # 按位与操作，去除黑色矩形部分
+    result = cv2.bitwise_and(image, image, mask=mask)
+
+    # 进行透视变换，提取迷宫图
+    if max_contour is not None:
+        # 近似多边形轮廓
+        epsilon = 0.05 * cv2.arcLength(max_contour, True)
+        approx = cv2.approxPolyDP(max_contour, epsilon, True)
+
+        # 获取矩形的顶点坐标
+        rect_pts = approx.reshape(4, 2)
+
+        # 裁剪图像到有效区域内
+        x, y, w, h = cv2.boundingRect(max_contour)
+        result = result[y:y+h, x:x+w]
+
+        # 转换为灰度图像
+        gray_result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+
+        # 二值化图像
+        _, thresholded = cv2.threshold(gray_result, 127, 255, cv2.THRESH_BINARY)
+
+        # 去除边缘黑色块
+        thresholded = remove_black_border(thresholded)
+
+        # 调整图像大小以适应屏幕显示
+        resized = cv2.resize(thresholded, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_LINEAR)
+
+        # 保存提取后的迷宫图像
+        cv2.imwrite("maze1.jpg", resized)
+
+        # 显示结果（可选）
+        cv2.imshow("Result", resized)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+def remove_black_border(image):
+    # 寻找图像的外边框
+    contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 计算最大外边框的边界框
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(image)
+
+    # 填充最大外边框
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, cv2.FILLED)
+
+    # 按位与操作，去除黑色边框
+    result = cv2.bitwise_and(image, mask)
+
+    return result
+
+# 调用函数并传入迷宫图像的文件路径
+image_path = "maze.jpg"
+extract_maze(image_path)
+
+
+def crop_and_transform(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 二值化图像
+    _, thresholded = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 选择最大轮廓
+    max_contour = max(contours, key=cv2.contourArea)
+
+    # 获取最大轮廓的边界框
+    x, y, w, h = cv2.boundingRect(max_contour)
+
+    # 定义保留的黑边大小
+    border_size = 2
+
+    # 裁剪图像并保留一定的黑边
+    cropped_image = image[max(0, y - border_size):y + h + border_size, max(0, x - border_size):x + w + border_size]
+
+    # 获取裁剪后图像的大小
+    cropped_h, cropped_w = cropped_image.shape[:2]
+
+    # 定义透视变换前后的四个点
+    src_pts = np.float32([[0, 0], [cropped_w, 0], [0, cropped_h], [cropped_w, cropped_h]])
+    dst_pts = np.float32([[border_size, border_size], [cropped_w - border_size, border_size], [border_size, cropped_h - border_size], [cropped_w - border_size, cropped_h - border_size]])
+
+    # 计算透视变换矩阵
+    transform_matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+
+    # 进行透视变换
+    transformed_image = cv2.warpPerspective(cropped_image, transform_matrix, (cropped_w, cropped_h))
+
+    # 显示结果
+    #cv2.imshow("Cropped and Transformed Image", transformed_image)
+    cv2.imwrite("auto.png",transformed_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+# 调用函数并传入图像文件路径
+image_path = "maze1.jpg"
+crop_and_transform(image_path)
+
+
+
+
+
+# 读取迷宫图像
+img = cv2.imread('auto.png', cv2.IMREAD_GRAYSCALE)
+# 霍夫圆变换
+circles = cv2.HoughCircles(img, cv2.HOUGH_GRADIENT, dp=1, minDist=22, param1=20, param2=14, minRadius=1, maxRadius=15)
+if circles is not None:
+    # 将圆心坐标和半径转换为整数
+    circles = np.round(circles[0, :]).astype(int)
+
+    # 创建与图像大小相同的黑色图像
+    mask = np.zeros_like(img)
+
+    # 绘制圆形掩膜，将圆内部区域填充为白色
+    for (x, y,r) in circles:
+        cv2.circle(img, (x , y), r+5,
+                   (255, 255, 255), thickness=cv2.FILLED)
+
+
+    # 将原图像与掩膜进行与运算，将圆内部区域变为黑色
+
+    cv2.imwrite("process.png", img)
+
+    # 将坐标映射到21x21的坐标
+    matrix_coordinates = []
+    for (x, y, r) in circles:
+        col = int((x / img.shape[1]) * 20)
+        row = int((y / img.shape[0]) * 20)
+
+        matrix_coordinates.append((row, col))
+
+    # 将宝藏的坐标整合成二维数组
+    cherish = np.array(matrix_coordinates)
+
+    # 判断宝藏数量
+    if len(cherish) == 8:
+        # 输出宝藏的二维数组
+        print("宝藏坐标：")
+        print(cherish)
+    else:
+        raise ValueError("未找到八个宝藏")
+
+img=img = cv2.resize(img, (601, 595))
+# 定义结构元素和迭代次数
+kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+iterations = 9
+
+# 形态学处理：膨胀、腐蚀
+dilated = cv2.dilate(img, kernel, iterations=iterations)
+eroded = cv2.erode(img, kernel, iterations=iterations)
+
+# 求差值并阈值处理
+diff = cv2.absdiff(dilated, eroded)
+_, thresholded = cv2.threshold(diff, 50, 255, cv2.THRESH_BINARY)
+
+# 保存处理后的图像
+cv2.imwrite("processed.png", thresholded)
+
+# 加载图像
+img = Image.open('processed.png')
+
+# 将图像转换为黑白图像，并将其缩放到合适的大小
+img = img.convert('L').resize((441, 441))
+
+# 获取图像像素值
+pixels = np.asarray(img)
+
+# 将图像分割为 19*19 个小块
+blocks = np.split(pixels, 21)
+blocks = [np.split(block, 21, axis=1) for block in blocks]
+blocks = np.array(blocks)
+
+# 计算每个小块中白色像素的数量占总像素数的比例
+ratios = np.zeros((21, 21))
+for i in range(21):
+    for j in range(21):
+        white_pixels = np.sum(blocks[i, j] < 128)
+        ratios[i, j] = white_pixels / blocks[i, j].size
+
+# 调整阈值，优化识别结果
+threshold = 0.5
+matrix = (ratios < threshold).astype(int)
+print(matrix)
+
+
+
+
+
+
+corrected_coordinates = []
+
+for x, y in cherish:
+    # 检测坐标对应的矩阵值是否为墙壁（值为1）
+    if matrix[x][y] == 1:
+        # 宝藏处为墙壁，向远离墙壁的方向微调坐标
+        if x in [0, 20] and y in [0, 20]:
+            # 宝藏处在角落，将其移动到非角落的位置
+            if x == 0:
+                x += 1
+            else:
+                x -= 1
+            if y == 0:
+                y += 1
+            else:
+                y -= 1
+        else:
+            # 宝藏处不在角落，不进行微调
+            pass
+
+        # 额外逻辑：真正宝藏所在坐标和修正前坐标横纵坐标之间的差值绝对值都不超过1
+        dx = abs(x - cherish[0][0])
+        dy = abs(y - cherish[0][1])
+        if dx <= 1 and dy <= 1:
+            x = cherish[0][0]
+            y = cherish[0][1]
+
+        # 额外逻辑：遍历宝藏坐标周围的点，如果某个点上下左右有三个为墙，则将其设为修正后的坐标
+        for i in range(x - 1, x + 2):
+            for j in range(y - 1, y + 2):
+                if 0 <= i < 21 and 0 <= j < 21 and matrix[i][j] == 0:
+                    wall_count = 0
+                    if i - 1 >= 0 and matrix[i - 1][j] == 1:
+                        wall_count += 1
+                    if i + 1 < 21 and matrix[i + 1][j] == 1:
+                        wall_count += 1
+                    if j - 1 >= 0 and matrix[i][j - 1] == 1:
+                        wall_count += 1
+                    if j + 1 < 21 and matrix[i][j + 1] == 1:
+                        wall_count += 1
+
+                    if wall_count == 3:
+                        x = i
+                        y = j
+
+    corrected_coordinates.append((x, y))
+
+cherish = corrected_coordinates
+
+# 打印修正后的宝藏坐标
+print("修正后的宝藏坐标：", cherish)
+
+
+
+
+# 将结果写入 txt 文件
+np.savetxt('maze.txt', matrix, fmt='%s')
+
+
+
+# 起点和终点
+start = (1, 1)
+end = (19, 19)
+
+# 要遍历的宝藏序列
+treasure_sequence = cherish
+
+# 计算两个点之间的路径距离
+def calculate_distance(point1, point2):
+    path = astar(maze, point1, point2)
+    return len(path) - 1 if path else float('inf')
+
+def heuristic(a, b):
+    # 曼哈顿距离
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def astar(array, start, end):
+    neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+    close_set = set()
+    came_from = {}
+    gscore = {start: 0}
+    fscore = {start: heuristic(start, end)}
+    oheap = []
+
+    heapq.heappush(oheap, (fscore[start], start))
+
+    while oheap:
+        current = heapq.heappop(oheap)[1]
+        if current == end:
+            data = []
+            while current in came_from:
+                data.append(current)
+                current = came_from[current]
+            return data
+        close_set.add(current)
+        for i, j in neighbors:
+            neighbor = current[0] + i, current[1] + j
+            tentative_g_score = gscore[current] + heuristic(current, neighbor)
+            if 0 <= neighbor[0] < array.shape[0]:
+                if 0 <= neighbor[1] < array.shape[1]:
+                    if array[neighbor[0]][neighbor[1]] == 1:
+                        continue
+                else:
+                    # 超出边界
+                    continue
+            else:
+                # 超出边界
+                continue
+
+            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, 0):
+                continue
+
+            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
+                came_from[neighbor] = current
+                gscore[neighbor] = tentative_g_score
+                fscore[neighbor] = tentative_g_score + heuristic(neighbor, end)
+                heapq.heappush(oheap, (fscore[neighbor], neighbor))
+
+    return []
+
+
+# 生成 20x20的迷宫
+maze = matrix
+
+
+def Visual_path(maze,start,end,i):
+    # 获取最短路径
+    path = astar(maze, start, end)
+    if not path:
+            print("无法到达终点！")
+    else:
+            if i == 8:
+                print('从第8个宝藏到终点的最短路径', path[::-1])
+            else:
+                print("到第",i+1,'个宝藏的最短路径', path[::-1])
+
+            # 绘制迷宫图
+            fig, ax = plt.subplots()
+            ax.imshow(1 - maze, cmap=plt.cm.binary)
+
+            # 绘制起点和终点
+            ax.scatter(start[1], start[0], marker="*", color="yellow", s=200)
+            ax.scatter(end[1], end[0], marker="*", color="red", s=200)
+
+            # 绘制最短路径
+            for pos in path:
+                ax.plot(pos[1], pos[0], marker="o", color="blue", markersize=10)
+            if i==8:
+                plt.show()
+            return path[::-1]
+
+
+
+current_point = start
+cost_min_cherish = []
+total_distance = 0
+
+while treasure_sequence:
+    distances = {}
+    for treasure in treasure_sequence:
+        distance = calculate_distance(current_point, treasure)
+        distances[treasure] = distance
+    nearest_treasure = min(distances, key=distances.get)
+    cost_min_cherish.append(nearest_treasure)
+    treasure_sequence.remove(nearest_treasure)
+    total_distance += distances[nearest_treasure]
+    current_point = nearest_treasure
+
+# 输出遍历顺序的数组和总的 cost
+print("遍历顺序:", cost_min_cherish)
+print("总的 cost:", total_distance)
+
+cost_min_cherish.insert(0, (1,1))
+cost_min_cherish.append((19,19))
+
+end_time = time.time()
+run_time = end_time - start_time
+print("程序运行时间为：{:.2f}秒".format(run_time))
+
+for row in matrix:
+    for i in range(len(row)):
+        if row[i] == 0:
+            row[i] = 6
+
+#matrix为二维迷宫数组
+print(matrix)
+#cherish为宝藏坐标
+#print(cherish)
+
+
+
+
+
+
+
+
+def is_intersection(maze, position):
+    x, y = position
+    num_options = 0
+
+    # 检查左侧选项
+    if y > 0 and maze[x][y - 1] == 6:
+        num_options += 1
+
+    # 检查右侧选项
+    if y < len(maze[0]) - 1 and maze[x][y + 1] == 6:
+        num_options += 1
+
+    # 检查上方选项
+    if x > 0 and maze[x - 1][y] == 6:
+        num_options += 1
+
+    # 检查下方选项
+    if x < len(maze) - 1 and maze[x + 1][y] == 6:
+        num_options += 1
+
+    # 检查是否是真正的路口
+    if num_options >= 3:
+        return True
+
+    # 检查特殊情况（两个路选项，且不在同一行或同一列）
+    if num_options == 2:
+        if y > 0 and y < len(maze[0]) - 1:
+            if maze[x][y - 1] == 6 and maze[x][y + 1] == 6:
+                return False
+        if x > 0 and x < len(maze) - 1:
+            if maze[x - 1][y] == 6 and maze[x + 1][y] == 6:
+                return False
+
+    return True
+
+
+
+
+
+def get_instruction(path, i):
+    index = i  # 获取坐标在路径中的索引
+    prev_x, prev_y = path[index - 1]
+    curr_x, curr_y = path[index]
+
+    if index < len(path) - 1:
+        next_x, next_y = path[index + 1]
+    else:
+        # 下一个位置不存在时的处理方式
+        # 这里返回一个默认的指令 "11"
+        return "11"
+
+    # 判断左转或右转
+    if (curr_x - prev_x) * (next_y - curr_y) - (curr_y - prev_y) * (next_x - curr_x) > 0:
+        return "10"
+    elif (curr_x - prev_x) * (next_y - curr_y) - (curr_y - prev_y) * (next_x - curr_x) < 0:
+        return "01"
+    else:
+        return "11"
+
+
+
+def get_distance(current_pos, next_pos):
+    # 计算两个相邻自定义路口之间的距离
+    cur_x, cur_y = current_pos
+    next_x, next_y = next_pos
+    return abs(next_x - cur_x) + abs(next_y - cur_y)
+
+
+def generate_road_book(maze, paths):
+    road_book = ""
+    prev_intersection = paths[0]
+    total_paths = len(paths) - 1
+
+    for i in range(1, total_paths + 1):
+        current_pos = paths[i]
+        if is_intersection(maze, current_pos):
+            if i == total_paths:
+                last_bit = "1"  # 最后一个生成的路书
+            else:
+                last_bit = "0"  # 不是最后一个生成的路书
+
+            if prev_intersection is not None:
+                distance = get_distance(prev_intersection, current_pos)
+                instruction = get_instruction(path, i)
+
+                road_book += format(distance, "05b") + instruction + last_bit
+            prev_intersection = current_pos
+
+    return road_book
+
+all_road_books = ""
+for i in range(0, 9):
+    path = Visual_path(maze, cost_min_cherish[i], cost_min_cherish[i+1], i)
+    road_book = generate_road_book(matrix, path)
+    all_road_books += road_book
+    print("Road Book:", road_book)
+    #print(path)
+
+print("All Road Books:\n", all_road_books)
+
+road_book=all_road_books
+
+# 字符串转换为整数数组
+road_book_array = [int(num) for num in road_book]
+
+# 将数组按4位分组，并转换为16进制数
+hex_array = []
+for i in range(0, len(road_book_array), 8):
+    binary_string = ''.join(map(str, road_book_array[i:i+8]))  # 将4位二进制数转换为字符串
+    decimal_value = int(binary_string, 2)  # 将二进制字符串转换为十进制数
+    hex_value = format(decimal_value, '02X')  # 将十进制数转换为4位16进制字符串
+    hex_array.append(hex_value)
+
+# 打印结果
+print(hex_array)
+
+
+# 创建空的整数数组
+int_array = []
+
+
+def connect_to_serial_port():
+    # 查找可用串口
+    available_ports = list(serial.tools.list_ports.comports())
+
+    for port in available_ports:
+        if port.vid == 4292:  # 供应商ID为4292
+            ser = serial.Serial(port.device)
+            return ser
+
+    print("No matching serial port found")
+    return None
+
+
+# 连接到指定供应商ID的串口设备
+ser = connect_to_serial_port()
+
+if ser is not None:
+    print("Serial port connected:", ser.port)
+
+    # 设置串口参数
+    ser.baudrate = 57600
+    # 其他操作...
+
+
+
+# 将迷宫地图转换为字节串
+map_bytes = bytearray()
+for row in matrix:
+    for cell in row:
+        map_bytes.append(cell)
+
+# 发送迷宫地图数据
+ser.write(map_bytes)
+
+
+
+# 发送16进制数组
+for hex_value in hex_array:
+    # 将16进制字符串转换为字节数据
+    byte_value = bytes.fromhex(hex_value)
+
+    # 发送字节数据到串口
+    ser.write(byte_value)
+
+    # 将16进制字符串转换为整数并添加到整数数组
+    int_value = int(hex_value, 16)
+    int_array.append(int_value)
+
+
+# 将十六进制数值30转换为字节数据
+data = bytes([0x30])
+
+# 发送数据到串口
+ser.write(data)
+
+# 关闭串口
+ser.close()
+
+4.贪心法
+import itertools
+import time
+import serial.tools.list_ports
+import matplotlib.pyplot as plt
+
+# 定义 A* 算法和启发函数
+import heapq
+start_time = time.time()
+import serial
+from PIL import Image
+import cv2
+import numpy as np
+
+
+def extract_maze(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 应用Canny边缘检测
+    edges = cv2.Canny(gray, 50, 150)
+
+    # 膨胀操作，填充边缘间隙
+    kernel = np.ones((3, 3), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 找到最大的矩形轮廓
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(gray)
+
+    # 填充最大轮廓
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, -1)
+
+    # 按位与操作，去除黑色矩形部分
+    result = cv2.bitwise_and(image, image, mask=mask)
+
+    # 进行透视变换，提取迷宫图
+    if max_contour is not None:
+        # 近似多边形轮廓
+        epsilon = 0.05 * cv2.arcLength(max_contour, True)
+        approx = cv2.approxPolyDP(max_contour, epsilon, True)
+
+        # 获取矩形的顶点坐标
+        rect_pts = approx.reshape(4, 2)
+
+        # 裁剪图像到有效区域内
+        x, y, w, h = cv2.boundingRect(max_contour)
+        result = result[y:y+h, x:x+w]
+
+        # 转换为灰度图像
+        gray_result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+
+        # 二值化图像
+        _, thresholded = cv2.threshold(gray_result, 127, 255, cv2.THRESH_BINARY)
+
+        # 去除边缘黑色块
+        thresholded = remove_black_border(thresholded)
+
+        # 调整图像大小以适应屏幕显示
+        resized = cv2.resize(thresholded, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_LINEAR)
+
+        # 保存提取后的迷宫图像
+        cv2.imwrite("maze1.jpg", resized)
+
+        # 显示结果（可选）
+        cv2.imshow("Result", resized)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+def remove_black_border(image):
+    # 寻找图像的外边框
+    contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 计算最大外边框的边界框
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(image)
+
+    # 填充最大外边框
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, cv2.FILLED)
+
+    # 按位与操作，去除黑色边框
+    result = cv2.bitwise_and(image, mask)
+
+    return result
+
+# 调用函数并传入迷宫图像的文件路径
+image_path = "maze.jpg"
+extract_maze(image_path)
+
+
+def crop_and_transform(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 二值化图像
+    _, thresholded = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 选择最大轮廓
+    max_contour = max(contours, key=cv2.contourArea)
+
+    # 获取最大轮廓的边界框
+    x, y, w, h = cv2.boundingRect(max_contour)
+
+    # 定义保留的黑边大小
+    border_size = 2
+
+    # 裁剪图像并保留一定的黑边
+    cropped_image = image[max(0, y - border_size):y + h + border_size, max(0, x - border_size):x + w + border_size]
+
+    # 获取裁剪后图像的大小
+    cropped_h, cropped_w = cropped_image.shape[:2]
+
+    # 定义透视变换前后的四个点
+    src_pts = np.float32([[0, 0], [cropped_w, 0], [0, cropped_h], [cropped_w, cropped_h]])
+    dst_pts = np.float32([[border_size, border_size], [cropped_w - border_size, border_size], [border_size, cropped_h - border_size], [cropped_w - border_size, cropped_h - border_size]])
+
+    # 计算透视变换矩阵
+    transform_matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+
+    # 进行透视变换
+    transformed_image = cv2.warpPerspective(cropped_image, transform_matrix, (cropped_w, cropped_h))
+
+    # 显示结果
+    #cv2.imshow("Cropped and Transformed Image", transformed_image)
+    cv2.imwrite("auto.png",transformed_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+# 调用函数并传入图像文件路径
+image_path = "maze1.jpg"
+crop_and_transform(image_path)
+
+
+
+
+
+# 读取迷宫图像
+img = cv2.imread('auto.png', cv2.IMREAD_GRAYSCALE)
+# 霍夫圆变换
+circles = cv2.HoughCircles(img, cv2.HOUGH_GRADIENT, dp=1, minDist=22, param1=20, param2=14, minRadius=1, maxRadius=15)
+if circles is not None:
+    # 将圆心坐标和半径转换为整数
+    circles = np.round(circles[0, :]).astype(int)
+
+    # 创建与图像大小相同的黑色图像
+    mask = np.zeros_like(img)
+
+    # 绘制圆形掩膜，将圆内部区域填充为白色
+    for (x, y,r) in circles:
+        cv2.circle(img, (x , y), r+5,
+                   (255, 255, 255), thickness=cv2.FILLED)
+
+
+    # 将原图像与掩膜进行与运算，将圆内部区域变为黑色
+
+    cv2.imwrite("process.png", img)
+
+    # 将坐标映射到21x21的坐标
+    matrix_coordinates = []
+    for (x, y, r) in circles:
+        col = int((x / img.shape[1]) * 20)
+        row = int((y / img.shape[0]) * 20)
+
+        matrix_coordinates.append((row, col))
+
+    # 将宝藏的坐标整合成二维数组
+    cherish = np.array(matrix_coordinates)
+
+    # 判断宝藏数量
+    if len(cherish) == 8:
+        # 输出宝藏的二维数组
+        print("宝藏坐标：")
+        print(cherish)
+    else:
+        raise ValueError("未找到八个宝藏")
+
+img=img = cv2.resize(img, (601, 595))
+# 定义结构元素和迭代次数
+kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+iterations = 9
+
+# 形态学处理：膨胀、腐蚀
+dilated = cv2.dilate(img, kernel, iterations=iterations)
+eroded = cv2.erode(img, kernel, iterations=iterations)
+
+# 求差值并阈值处理
+diff = cv2.absdiff(dilated, eroded)
+_, thresholded = cv2.threshold(diff, 50, 255, cv2.THRESH_BINARY)
+
+# 保存处理后的图像
+cv2.imwrite("processed.png", thresholded)
+
+# 加载图像
+img = Image.open('processed.png')
+
+# 将图像转换为黑白图像，并将其缩放到合适的大小
+img = img.convert('L').resize((441, 441))
+
+# 获取图像像素值
+pixels = np.asarray(img)
+
+# 将图像分割为 19*19 个小块
+blocks = np.split(pixels, 21)
+blocks = [np.split(block, 21, axis=1) for block in blocks]
+blocks = np.array(blocks)
+
+# 计算每个小块中白色像素的数量占总像素数的比例
+ratios = np.zeros((21, 21))
+for i in range(21):
+    for j in range(21):
+        white_pixels = np.sum(blocks[i, j] < 128)
+        ratios[i, j] = white_pixels / blocks[i, j].size
+
+# 调整阈值，优化识别结果
+threshold = 0.5
+matrix = (ratios < threshold).astype(int)
+print(matrix)
+
+
+
+
+
+
+corrected_coordinates = []
+
+for x, y in cherish:
+    # 检测坐标对应的矩阵值是否为墙壁（值为1）
+    if matrix[x][y] == 1:
+        # 宝藏处为墙壁，向远离墙壁的方向微调坐标
+        if x in [0, 20] and y in [0, 20]:
+            # 宝藏处在角落，将其移动到非角落的位置
+            if x == 0:
+                x += 1
+            else:
+                x -= 1
+            if y == 0:
+                y += 1
+            else:
+                y -= 1
+        else:
+            # 宝藏处不在角落，不进行微调
+            pass
+
+        # 额外逻辑：真正宝藏所在坐标和修正前坐标横纵坐标之间的差值绝对值都不超过1
+        dx = abs(x - cherish[0][0])
+        dy = abs(y - cherish[0][1])
+        if dx <= 1 and dy <= 1:
+            x = cherish[0][0]
+            y = cherish[0][1]
+
+        # 额外逻辑：遍历宝藏坐标周围的点，如果某个点上下左右有三个为墙，则将其设为修正后的坐标
+        for i in range(x - 1, x + 2):
+            for j in range(y - 1, y + 2):
+                if 0 <= i < 21 and 0 <= j < 21 and matrix[i][j] == 0:
+                    wall_count = 0
+                    if i - 1 >= 0 and matrix[i - 1][j] == 1:
+                        wall_count += 1
+                    if i + 1 < 21 and matrix[i + 1][j] == 1:
+                        wall_count += 1
+                    if j - 1 >= 0 and matrix[i][j - 1] == 1:
+                        wall_count += 1
+                    if j + 1 < 21 and matrix[i][j + 1] == 1:
+                        wall_count += 1
+
+                    if wall_count == 3:
+                        x = i
+                        y = j
+
+    corrected_coordinates.append((x, y))
+
+cherish = corrected_coordinates
+
+# 打印修正后的宝藏坐标
+print("修正后的宝藏坐标：", cherish)
+
+
+
+
+# 将结果写入 txt 文件
+np.savetxt('maze.txt', matrix, fmt='%s')
+
+
+
+# 起点和终点
+start = (1, 1)
+end = (19, 19)
+
+# 要遍历的宝藏序列
+treasure_sequence = cherish
+
+# 计算两个点之间的路径距离
+def calculate_distance(point1, point2):
+    path = astar(maze, point1, point2)
+    return len(path) - 1 if path else float('inf')
+
+def heuristic(a, b):
+    # 曼哈顿距离
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def astar(array, start, end):
+    neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+    close_set = set()
+    came_from = {}
+    gscore = {start: 0}
+    fscore = {start: heuristic(start, end)}
+    oheap = []
+
+    heapq.heappush(oheap, (fscore[start], start))
+
+    while oheap:
+        current = heapq.heappop(oheap)[1]
+        if current == end:
+            data = []
+            while current in came_from:
+                data.append(current)
+                current = came_from[current]
+            return data
+        close_set.add(current)
+        for i, j in neighbors:
+            neighbor = current[0] + i, current[1] + j
+            tentative_g_score = gscore[current] + heuristic(current, neighbor)
+            if 0 <= neighbor[0] < array.shape[0]:
+                if 0 <= neighbor[1] < array.shape[1]:
+                    if array[neighbor[0]][neighbor[1]] == 1:
+                        continue
+                else:
+                    # 超出边界
+                    continue
+            else:
+                # 超出边界
+                continue
+
+            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, 0):
+                continue
+
+            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
+                came_from[neighbor] = current
+                gscore[neighbor] = tentative_g_score
+                fscore[neighbor] = tentative_g_score + heuristic(neighbor, end)
+                heapq.heappush(oheap, (fscore[neighbor], neighbor))
+
+    return []
+
+
+# 生成 20x20的迷宫
+maze = matrix
+
+
+def Visual_path(maze,start,end,i):
+    # 获取最短路径
+    path = astar(maze, start, end)
+    if not path:
+            print("无法到达终点！")
+    else:
+            if i == 8:
+                print('从第8个宝藏到终点的最短路径', path[::-1])
+            else:
+                print("到第",i+1,'个宝藏的最短路径', path[::-1])
+
+            # 绘制迷宫图
+            fig, ax = plt.subplots()
+            ax.imshow(1 - maze, cmap=plt.cm.binary)
+
+            # 绘制起点和终点
+            ax.scatter(start[1], start[0], marker="*", color="yellow", s=200)
+            ax.scatter(end[1], end[0], marker="*", color="red", s=200)
+
+            # 绘制最短路径
+            for pos in path:
+                ax.plot(pos[1], pos[0], marker="o", color="blue", markersize=10)
+            if i==8:
+                plt.show()
+            return path[::-1]
+
+
+
+current_point = start
+cost_min_cherish = []
+total_distance = 0
+
+while treasure_sequence:
+    distances = {}
+    for treasure in treasure_sequence:
+        distance = calculate_distance(current_point, treasure)
+        distances[treasure] = distance
+    nearest_treasure = min(distances, key=distances.get)
+    cost_min_cherish.append(nearest_treasure)
+    treasure_sequence.remove(nearest_treasure)
+    total_distance += distances[nearest_treasure]
+    current_point = nearest_treasure
+
+# 输出遍历顺序的数组和总的 cost
+print("遍历顺序:", cost_min_cherish)
+print("总的 cost:", total_distance)
+
+cost_min_cherish.insert(0, (1,1))
+cost_min_cherish.append((19,19))
+
+end_time = time.time()
+run_time = end_time - start_time
+print("程序运行时间为：{:.2f}秒".format(run_time))
+
+for row in matrix:
+    for i in range(len(row)):
+        if row[i] == 0:
+            row[i] = 6
+
+#matrix为二维迷宫数组
+print(matrix)
+#cherish为宝藏坐标
+#print(cherish)
+
+
+
+
+
+
+
+
+def is_intersection(maze, position):
+    x, y = position
+    num_options = 0
+
+    # 检查左侧选项
+    if y > 0 and maze[x][y - 1] == 6:
+        num_options += 1
+
+    # 检查右侧选项
+    if y < len(maze[0]) - 1 and maze[x][y + 1] == 6:
+        num_options += 1
+
+    # 检查上方选项
+    if x > 0 and maze[x - 1][y] == 6:
+        num_options += 1
+
+    # 检查下方选项
+    if x < len(maze) - 1 and maze[x + 1][y] == 6:
+        num_options += 1
+
+    # 检查是否是真正的路口
+    if num_options >= 3:
+        return True
+
+    # 检查特殊情况（两个路选项，且不在同一行或同一列）
+    if num_options == 2:
+        if y > 0 and y < len(maze[0]) - 1:
+            if maze[x][y - 1] == 6 and maze[x][y + 1] == 6:
+                return False
+        if x > 0 and x < len(maze) - 1:
+            if maze[x - 1][y] == 6 and maze[x + 1][y] == 6:
+                return False
+
+    return True
+
+
+
+
+
+def get_instruction(path, i):
+    index = i  # 获取坐标在路径中的索引
+    prev_x, prev_y = path[index - 1]
+    curr_x, curr_y = path[index]
+
+    if index < len(path) - 1:
+        next_x, next_y = path[index + 1]
+    else:
+        # 下一个位置不存在时的处理方式
+        # 这里返回一个默认的指令 "11"
+        return "11"
+
+    # 判断左转或右转
+    if (curr_x - prev_x) * (next_y - curr_y) - (curr_y - prev_y) * (next_x - curr_x) > 0:
+        return "10"
+    elif (curr_x - prev_x) * (next_y - curr_y) - (curr_y - prev_y) * (next_x - curr_x) < 0:
+        return "01"
+    else:
+        return "11"
+
+
+
+def get_distance(current_pos, next_pos):
+    # 计算两个相邻自定义路口之间的距离
+    cur_x, cur_y = current_pos
+    next_x, next_y = next_pos
+    return abs(next_x - cur_x) + abs(next_y - cur_y)
+
+
+def generate_road_book(maze, paths):
+    road_book = ""
+    prev_intersection = paths[0]
+    total_paths = len(paths) - 1
+
+    for i in range(1, total_paths + 1):
+        current_pos = paths[i]
+        if is_intersection(maze, current_pos):
+            if i == total_paths:
+                last_bit = "1"  # 最后一个生成的路书
+            else:
+                last_bit = "0"  # 不是最后一个生成的路书
+
+            if prev_intersection is not None:
+                distance = get_distance(prev_intersection, current_pos)
+                instruction = get_instruction(path, i)
+
+                road_book += format(distance, "05b") + instruction + last_bit
+            prev_intersection = current_pos
+
+    return road_book
+
+all_road_books = ""
+for i in range(0, 9):
+    path = Visual_path(maze, cost_min_cherish[i], cost_min_cherish[i+1], i)
+    road_book = generate_road_book(matrix, path)
+    all_road_books += road_book
+    print("Road Book:", road_book)
+    #print(path)
+
+print("All Road Books:\n", all_road_books)
+
+road_book=all_road_books
+
+# 字符串转换为整数数组
+road_book_array = [int(num) for num in road_book]
+
+# 将数组按4位分组，并转换为16进制数
+hex_array = []
+for i in range(0, len(road_book_array), 8):
+    binary_string = ''.join(map(str, road_book_array[i:i+8]))  # 将4位二进制数转换为字符串
+    decimal_value = int(binary_string, 2)  # 将二进制字符串转换为十进制数
+    hex_value = format(decimal_value, '02X')  # 将十进制数转换为4位16进制字符串
+    hex_array.append(hex_value)
+
+# 打印结果
+print(hex_array)
+
+
+# 创建空的整数数组
+int_array = []
+
+
+def connect_to_serial_port():
+    # 查找可用串口
+    available_ports = list(serial.tools.list_ports.comports())
+
+    for port in available_ports:
+        if port.vid == 4292:  # 供应商ID为4292
+            ser = serial.Serial(port.device)
+            return ser
+
+    print("No matching serial port found")
+    return None
+
+
+# 连接到指定供应商ID的串口设备
+ser = connect_to_serial_port()
+
+if ser is not None:
+    print("Serial port connected:", ser.port)
+
+    # 设置串口参数
+    ser.baudrate = 57600
+    # 其他操作...
+
+
+
+# 将迷宫地图转换为字节串
+map_bytes = bytearray()
+for row in matrix:
+    for cell in row:
+        map_bytes.append(cell)
+
+# 发送迷宫地图数据
+ser.write(map_bytes)
+
+
+
+# 发送16进制数组
+for hex_value in hex_array:
+    # 将16进制字符串转换为字节数据
+    byte_value = bytes.fromhex(hex_value)
+
+    # 发送字节数据到串口
+    ser.write(byte_value)
+
+    # 将16进制字符串转换为整数并添加到整数数组
+    int_value = int(hex_value, 16)
+    int_array.append(int_value)
+
+
+# 将十六进制数值30转换为字节数据
+data = bytes([0x30])
+
+# 发送数据到串口
+ser.write(data)
+
+# 关闭串口
+ser.close()
+
+
+
+5.在4的基础上改变了编码格式，纠正了宝藏识别不在死角的问题
+import itertools
+import time
+import serial.tools.list_ports
+import matplotlib.pyplot as plt
+
+# 定义 A* 算法和启发函数
+import heapq
+start_time = time.time()
+import serial
+from PIL import Image
+import cv2
+import numpy as np
+
+
+def extract_maze(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 应用Canny边缘检测
+    edges = cv2.Canny(gray, 50, 150)
+
+    # 膨胀操作，填充边缘间隙
+    kernel = np.ones((3, 3), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 找到最大的矩形轮廓
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(gray)
+
+    # 填充最大轮廓
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, -1)
+
+    # 按位与操作，去除黑色矩形部分
+    result = cv2.bitwise_and(image, image, mask=mask)
+
+    # 进行透视变换，提取迷宫图
+    if max_contour is not None:
+        # 近似多边形轮廓
+        epsilon = 0.05 * cv2.arcLength(max_contour, True)
+        approx = cv2.approxPolyDP(max_contour, epsilon, True)
+
+        # 获取矩形的顶点坐标
+        rect_pts = approx.reshape(4, 2)
+
+        # 裁剪图像到有效区域内
+        x, y, w, h = cv2.boundingRect(max_contour)
+        result = result[y:y+h, x:x+w]
+
+        # 转换为灰度图像
+        gray_result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+
+        # 二值化图像
+        _, thresholded = cv2.threshold(gray_result, 127, 255, cv2.THRESH_BINARY)
+
+        # 去除边缘黑色块
+        thresholded = remove_black_border(thresholded)
+
+        # 调整图像大小以适应屏幕显示
+        resized = cv2.resize(thresholded, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_LINEAR)
+
+        # 保存提取后的迷宫图像
+        cv2.imwrite("maze1.jpg", resized)
+
+        # 显示结果（可选）
+        cv2.imshow("Result", resized)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+def remove_black_border(image):
+    # 寻找图像的外边框
+    contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 计算最大外边框的边界框
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(image)
+
+    # 填充最大外边框
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, cv2.FILLED)
+
+    # 按位与操作，去除黑色边框
+    result = cv2.bitwise_and(image, mask)
+
+    return result
+
+# 调用函数并传入迷宫图像的文件路径
+image_path = "maze.jpg"
+extract_maze(image_path)
+
+
+def crop_and_transform(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 二值化图像
+    _, thresholded = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 选择最大轮廓
+    max_contour = max(contours, key=cv2.contourArea)
+
+    # 获取最大轮廓的边界框
+    x, y, w, h = cv2.boundingRect(max_contour)
+
+    # 定义保留的黑边大小
+    border_size = 2
+
+    # 裁剪图像并保留一定的黑边
+    cropped_image = image[max(0, y - border_size):y + h + border_size, max(0, x - border_size):x + w + border_size]
+
+    # 获取裁剪后图像的大小
+    cropped_h, cropped_w = cropped_image.shape[:2]
+
+    # 定义透视变换前后的四个点
+    src_pts = np.float32([[0, 0], [cropped_w, 0], [0, cropped_h], [cropped_w, cropped_h]])
+    dst_pts = np.float32([[border_size, border_size], [cropped_w - border_size, border_size], [border_size, cropped_h - border_size], [cropped_w - border_size, cropped_h - border_size]])
+
+    # 计算透视变换矩阵
+    transform_matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+
+    # 进行透视变换
+    transformed_image = cv2.warpPerspective(cropped_image, transform_matrix, (cropped_w, cropped_h))
+
+    # 显示结果
+    #cv2.imshow("Cropped and Transformed Image", transformed_image)
+    cv2.imwrite("auto.png",transformed_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+# 调用函数并传入图像文件路径
+image_path = "maze1.jpg"
+crop_and_transform(image_path)
+
+
+
+
+
+# 读取迷宫图像
+img = cv2.imread('auto.png', cv2.IMREAD_GRAYSCALE)
+# 霍夫圆变换
+circles = cv2.HoughCircles(img, cv2.HOUGH_GRADIENT, dp=1, minDist=22, param1=20, param2=14, minRadius=1, maxRadius=15)
+if circles is not None:
+    # 将圆心坐标和半径转换为整数
+    circles = np.round(circles[0, :]).astype(int)
+
+    # 创建与图像大小相同的黑色图像
+    mask = np.zeros_like(img)
+
+    # 绘制圆形掩膜，将圆内部区域填充为白色
+    for (x, y,r) in circles:
+        cv2.circle(img, (x , y), r+5,
+                   (255, 255, 255), thickness=cv2.FILLED)
+
+
+    # 将原图像与掩膜进行与运算，将圆内部区域变为黑色
+
+    cv2.imwrite("process.png", img)
+
+    # 将坐标映射到21x21的坐标
+    matrix_coordinates = []
+    for (x, y, r) in circles:
+        col = int((x / img.shape[1]) * 20)
+        row = int((y / img.shape[0]) * 20)
+
+        matrix_coordinates.append((row, col))
+
+    # 将宝藏的坐标整合成二维数组
+    cherish = np.array(matrix_coordinates)
+
+    # 判断宝藏数量
+    if len(cherish) == 8:
+        # 输出宝藏的二维数组
+        print("宝藏坐标：")
+        print(cherish)
+    else:
+        raise ValueError("未找到八个宝藏")
+
+img=img = cv2.resize(img, (601, 595))
+# 定义结构元素和迭代次数
+kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+iterations = 9
+
+# 形态学处理：膨胀、腐蚀
+dilated = cv2.dilate(img, kernel, iterations=iterations)
+eroded = cv2.erode(img, kernel, iterations=iterations)
+
+# 求差值并阈值处理
+diff = cv2.absdiff(dilated, eroded)
+_, thresholded = cv2.threshold(diff, 50, 255, cv2.THRESH_BINARY)
+
+# 保存处理后的图像
+cv2.imwrite("processed.png", thresholded)
+
+# 加载图像
+img = Image.open('processed.png')
+
+# 将图像转换为黑白图像，并将其缩放到合适的大小
+img = img.convert('L').resize((441, 441))
+
+# 获取图像像素值
+pixels = np.asarray(img)
+
+# 将图像分割为 19*19 个小块
+blocks = np.split(pixels, 21)
+blocks = [np.split(block, 21, axis=1) for block in blocks]
+blocks = np.array(blocks)
+
+# 计算每个小块中白色像素的数量占总像素数的比例
+ratios = np.zeros((21, 21))
+for i in range(21):
+    for j in range(21):
+        white_pixels = np.sum(blocks[i, j] < 128)
+        ratios[i, j] = white_pixels / blocks[i, j].size
+
+# 调整阈值，优化识别结果
+threshold = 0.5
+matrix = (ratios < threshold).astype(int)
+print(matrix)
+
+
+
+
+
+
+def corrected_cherish(cherish):
+    corrected_coordinates = []
+    for x, y in cherish:
+        # 检测坐标对应的矩阵值是否为墙壁（值为1）
+        if matrix[x][y] == 1:
+            # 宝藏处为墙壁，向远离墙壁的方向微调坐标
+            if x in [0, 20] and y in [0, 20]:
+                # 宝藏处在角落，将其移动到非角落的位置
+                if x == 0:
+                    x += 1
+                else:
+                    x -= 1
+                if y == 0:
+                    y += 1
+                else:
+                    y -= 1
+            else:
+                # 宝藏处不在角落，不进行微调
+                pass
+
+            # 额外逻辑：真正宝藏所在坐标和修正前坐标横纵坐标之间的差值绝对值都不超过1
+            dx = abs(x - cherish[0][0])
+            dy = abs(y - cherish[0][1])
+            if dx <= 1 and dy <= 1:
+                x = cherish[0][0]
+                y = cherish[0][1]
+
+            # 额外逻辑：遍历宝藏坐标周围的点，如果某个点上下左右有三个为墙，则将其设为修正后的坐标
+            for i in range(x - 1, x + 2):
+                for j in range(y - 1, y + 2):
+                    if 0 <= i < 21 and 0 <= j < 21 and matrix[i][j] == 0:
+                        wall_count = 0
+                        if i - 1 >= 0 and matrix[i - 1][j] == 1:
+                            wall_count += 1
+                        if i + 1 < 21 and matrix[i + 1][j] == 1:
+                            wall_count += 1
+                        if j - 1 >= 0 and matrix[i][j - 1] == 1:
+                            wall_count += 1
+                        if j + 1 < 21 and matrix[i][j + 1] == 1:
+                            wall_count += 1
+
+                        if wall_count == 3:
+                            x = i
+                            y = j
+
+        corrected_coordinates.append((x, y))
+    return corrected_coordinates
+
+
+def is_dead_end(maze, x, y):
+    wall_count = 0  # 统计周围墙的数量
+
+    # 检查上方是否是墙
+    if x > 0 and maze[x - 1][y] == 1:
+        wall_count += 1
+
+    # 检查下方是否是墙
+    if x < len(maze) - 1 and maze[x + 1][y] == 1:
+        wall_count += 1
+
+    # 检查左侧是否是墙
+    if y > 0 and maze[x][y - 1] == 1:
+        wall_count += 1
+
+    # 检查右侧是否是墙
+    if y < len(maze[0]) - 1 and maze[x][y + 1] == 1:
+        wall_count += 1
+
+    # 判断是否是死角
+    if wall_count == 3:
+        # 是死角，坐标不变
+        return True
+    else:
+        return False
+
+
+
+def check_and_modify_dead_end(maze, x, y):
+    if is_dead_end(maze, x, y):
+        # 是死角，坐标不变
+        return x, y
+    else:
+        # 不是死角，检测上下左右四个方向，找到死角并修改原坐标
+        if is_dead_end(maze,x-1,y):
+            return x - 1, y
+        elif is_dead_end(maze,x+1,y):
+            return x + 1, y
+        elif is_dead_end(maze,x,y-1):
+            return x, y - 1
+        elif is_dead_end(maze,x,y+1):
+            return x, y + 1
+
+
+
+cherish = corrected_cherish(cherish)
+cherish = [check_and_modify_dead_end(matrix, x, y) for x, y in cherish]
+
+
+# 打印修正后的宝藏坐标
+print("修正后的宝藏坐标：", cherish)
+
+
+
+
+# 将结果写入 txt 文件
+np.savetxt('maze.txt', matrix, fmt='%s')
+
+
+
+# 起点和终点
+start = (1, 1)
+end = (19, 19)
+
+# 要遍历的宝藏序列
+treasure_sequence = cherish
+
+# 计算两个点之间的路径距离
+def calculate_distance(point1, point2):
+    path = astar(maze, point1, point2)
+    return len(path) - 1 if path else float('inf')
+
+def heuristic(a, b):
+    # 曼哈顿距离
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def astar(array, start, end):
+    neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+    close_set = set()
+    came_from = {}
+    gscore = {start: 0}
+    fscore = {start: heuristic(start, end)}
+    oheap = []
+
+    heapq.heappush(oheap, (fscore[start], start))
+
+    while oheap:
+        current = heapq.heappop(oheap)[1]
+        if current == end:
+            data = []
+            while current in came_from:
+                data.append(current)
+                current = came_from[current]
+            return data
+        close_set.add(current)
+        for i, j in neighbors:
+            neighbor = current[0] + i, current[1] + j
+            tentative_g_score = gscore[current] + heuristic(current, neighbor)
+            if 0 <= neighbor[0] < array.shape[0]:
+                if 0 <= neighbor[1] < array.shape[1]:
+                    if array[neighbor[0]][neighbor[1]] == 1:
+                        continue
+                else:
+                    # 超出边界
+                    continue
+            else:
+                # 超出边界
+                continue
+
+            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, 0):
+                continue
+
+            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
+                came_from[neighbor] = current
+                gscore[neighbor] = tentative_g_score
+                fscore[neighbor] = tentative_g_score + heuristic(neighbor, end)
+                heapq.heappush(oheap, (fscore[neighbor], neighbor))
+
+    return []
+
+
+# 生成 20x20的迷宫
+maze = matrix
+
+
+def Visual_path(maze,start,end,i):
+    # 获取最短路径
+    path = astar(maze, start, end)
+    path.append(start)
+    if not path:
+            print("无法到达终点！")
+    else:
+            if i == 8:
+                print('从第8个宝藏到终点的最短路径', path[::-1])
+            else:
+                print("到第",i+1,'个宝藏的最短路径', path[::-1])
+
+            # 绘制迷宫图
+            fig, ax = plt.subplots()
+            ax.imshow(1 - maze, cmap=plt.cm.binary)
+
+            # 绘制起点和终点
+            ax.scatter(start[1], start[0], marker="*", color="yellow", s=200)
+            ax.scatter(end[1], end[0], marker="*", color="red", s=200)
+
+            # 绘制最短路径
+            for pos in path:
+                ax.plot(pos[1], pos[0], marker="o", color="blue", markersize=10)
+            if i==8:
+                plt.show()
+            return path[::-1]
+
+
+
+current_point = start
+cost_min_cherish = []
+total_distance = 0
+
+while treasure_sequence:
+    distances = {}
+    for treasure in treasure_sequence:
+        distance = calculate_distance(current_point, treasure)
+        distances[treasure] = distance
+    nearest_treasure = min(distances, key=distances.get)
+    cost_min_cherish.append(nearest_treasure)
+    treasure_sequence.remove(nearest_treasure)
+    total_distance += distances[nearest_treasure]
+    current_point = nearest_treasure
+
+# 输出遍历顺序的数组和总的 cost
+print("遍历顺序:", cost_min_cherish)
+print("总的 cost:", total_distance)
+
+cost_min_cherish.insert(0, (1,1))
+cost_min_cherish.append((19,19))
+
+end_time = time.time()
+run_time = end_time - start_time
+print("程序运行时间为：{:.2f}秒".format(run_time))
+
+for row in matrix:
+    for i in range(len(row)):
+        if row[i] == 0:
+            row[i] = 6
+
+#matrix为二维迷宫数组
+print(matrix)
+#cherish为宝藏坐标
+#print(cherish)
+
+
+
+
+
+
+
+
+def is_intersection(maze, position):
+    x, y = position
+    num_options = 0
+
+    # 检查左侧选项
+    if y > 0 and maze[x][y - 1] == 6:
+        num_options += 1
+
+    # 检查右侧选项
+    if y < len(maze[0]) - 1 and maze[x][y + 1] == 6:
+        num_options += 1
+
+    # 检查上方选项
+    if x > 0 and maze[x - 1][y] == 6:
+        num_options += 1
+
+    # 检查下方选项
+    if x < len(maze) - 1 and maze[x + 1][y] == 6:
+        num_options += 1
+
+    # 检查是否是真正的路口
+    if num_options >= 3:
+        return True
+
+    # 检查特殊情况（两个路选项，且不在同一行或同一列）
+    if num_options == 2:
+        if y > 0 and y < len(maze[0]) - 1:
+            if maze[x][y - 1] == 6 and maze[x][y + 1] == 6:
+                return False
+        if x > 0 and x < len(maze) - 1:
+            if maze[x - 1][y] == 6 and maze[x + 1][y] == 6:
+                return False
+
+    return True
+
+
+
+
+
+def get_instruction(path, i):
+    index = i  # 获取坐标在路径中的索引
+    prev_x, prev_y = path[index - 1]
+    curr_x, curr_y = path[index]
+
+    if index < len(path) - 1:
+        next_x, next_y = path[index + 1]
+    else:
+        # 下一个位置不存在时的处理方式
+        # 这里返回一个默认的指令 "11"
+        return "11"
+
+    # 判断左转或右转
+    if (curr_x - prev_x) * (next_y - curr_y) - (curr_y - prev_y) * (next_x - curr_x) > 0:
+        return "10"
+    elif (curr_x - prev_x) * (next_y - curr_y) - (curr_y - prev_y) * (next_x - curr_x) < 0:
+        return "01"
+    else:
+        return "11"
+
+
+
+def get_distance(current_pos, next_pos):
+    # 计算两个相邻自定义路口之间的距离
+    cur_x, cur_y = current_pos
+    next_x, next_y = next_pos
+    return abs(next_x - cur_x) + abs(next_y - cur_y)
+
+
+def generate_road_book(maze, paths):
+    road_book = ""
+    num=1
+    prev_intersection = paths[1]
+    total_paths = len(paths) - 1
+    while(is_intersection(maze,prev_intersection)!=1):
+        num+=1
+        prev_intersection = paths[num]
+        pass
+    counter=num
+
+    for i in range(1+num, total_paths + 1):
+        current_pos = paths[i]
+        if is_intersection(maze, current_pos):
+            if i == total_paths:
+                last_bit = "1"  # 最后一个生成的路书
+            else:
+                last_bit = "0"  # 不是最后一个生成的路书
+
+            if prev_intersection is not None:
+                distance = get_distance(prev_intersection, current_pos)
+                instruction = get_instruction(paths, counter)
+                road_book += format(distance, "05b") + instruction + last_bit
+            prev_intersection = current_pos
+            counter=i
+
+    return road_book
+
+all_road_books = ""
+for i in range(0, 9):
+    path = Visual_path(maze, cost_min_cherish[i], cost_min_cherish[i+1], i)
+    road_book = generate_road_book(matrix, path)
+    all_road_books += road_book
+    print("Road Book:", road_book)
+    #print(path)
+
+print("All Road Books:\n", all_road_books)
+
+road_book=all_road_books
+
+# 字符串转换为整数数组
+road_book_array = [int(num) for num in road_book]
+
+# 将数组按4位分组，并转换为16进制数
+hex_array = []
+for i in range(0, len(road_book_array), 8):
+    binary_string = ''.join(map(str, road_book_array[i:i+8]))  # 将4位二进制数转换为字符串
+    decimal_value = int(binary_string, 2)  # 将二进制字符串转换为十进制数
+    hex_value = format(decimal_value, '02X')  # 将十进制数转换为4位16进制字符串
+    hex_array.append(hex_value)
+
+# 打印结果
+print(hex_array)
+
+
+# 创建空的整数数组
+int_array = []
+
+
+def connect_to_serial_port():
+    # 查找可用串口
+    available_ports = list(serial.tools.list_ports.comports())
+
+    for port in available_ports:
+        if port.vid == 4292:  # 供应商ID为4292
+            ser = serial.Serial(port.device)
+            return ser
+
+    print("No matching serial port found")
+    return None
+
+
+# 连接到指定供应商ID的串口设备
+ser = connect_to_serial_port()
+
+if ser is not None:
+    print("Serial port connected:", ser.port)
+
+    # 设置串口参数
+    ser.baudrate = 57600
+    # 其他操作...
+
+
+
+# 将迷宫地图转换为字节串
+map_bytes = bytearray()
+for row in matrix:
+    for cell in row:
+        map_bytes.append(cell)
+
+# 发送迷宫地图数据
+ser.write(map_bytes)
+
+
+
+# 发送16进制数组
+for hex_value in hex_array:
+    # 将16进制字符串转换为字节数据
+    byte_value = bytes.fromhex(hex_value)
+
+    # 发送字节数据到串口
+    ser.write(byte_value)
+
+    # 将16进制字符串转换为整数并添加到整数数组
+    int_value = int(hex_value, 16)
+    int_array.append(int_value)
+
+
+# 将十六进制数值30转换为字节数据
+data = bytes([0x30])
+
+# 发送数据到串口
+ser.write(data)
+
+# 关闭串口
+ser.close()
+
+
+6.＋识别蓝红方程序
+import itertools
+import time
+import serial.tools.list_ports
+import matplotlib.pyplot as plt
+
+# 定义 A* 算法和启发函数
+import heapq
+start_time = time.time()
+import serial
+from PIL import Image
+import cv2
+import numpy as np
+
+def get_color(image_path):
+    image = cv2.imread(image_path)
+    height, width, _ = image.shape
+
+    # 获取左上角和右下角方块的位置
+    left_top_box = (0, 0, width//2, height//2)
+    right_bottom_box = (width//2, height//2, width, height)
+
+    # 获取左上角和右下角方块的颜色
+    left_top_color = get_color_type(image, *left_top_box)
+    right_bottom_color = get_color_type(image, *right_bottom_box)
+
+    if left_top_color == right_bottom_color:
+        return "Unknown"
+
+    if left_top_color == "Blue" and right_bottom_color == "Red":
+        return "01"
+    elif left_top_color == "Red" and right_bottom_color == "Blue":
+        return "Left Top is Red, Right Bottom is Blue"
+
+    return "Unknown"
+
+def get_color_type(image, x1, y1, x2, y2):
+    region = image[y1:y2, x1:x2]
+
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+
+    lower_blue = np.array([100, 50, 50])
+    upper_blue = np.array([130, 255, 255])
+    mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
+    blue_pixels = cv2.countNonZero(mask_blue)
+
+    lower_red = np.array([0, 50, 50])
+    upper_red = np.array([20, 255, 255])
+    mask_red = cv2.inRange(hsv, lower_red, upper_red)
+    red_pixels = cv2.countNonZero(mask_red)
+
+    total_pixels = (x2 - x1) * (y2 - y1)
+    blue_ratio = blue_pixels / total_pixels
+    red_ratio = red_pixels / total_pixels
+
+    if blue_ratio > 0.01:  # 蓝色块阈值
+        return "Blue"
+    elif red_ratio > 0.01:  # 红色块阈值
+        return "Red"
+    else:
+        return "Unknown"
+def extract_maze(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 应用Canny边缘检测
+    edges = cv2.Canny(gray, 50, 150)
+
+    # 膨胀操作，填充边缘间隙
+    kernel = np.ones((3, 3), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 找到最大的矩形轮廓
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(gray)
+
+    # 填充最大轮廓
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, -1)
+
+    # 按位与操作，去除黑色矩形部分
+    result = cv2.bitwise_and(image, image, mask=mask)
+
+    # 进行透视变换，提取迷宫图
+    if max_contour is not None:
+        # 近似多边形轮廓
+        epsilon = 0.05 * cv2.arcLength(max_contour, True)
+        approx = cv2.approxPolyDP(max_contour, epsilon, True)
+
+        # 获取矩形的顶点坐标
+        rect_pts = approx.reshape(4, 2)
+
+        # 裁剪图像到有效区域内
+        x, y, w, h = cv2.boundingRect(max_contour)
+        result = result[y:y+h, x:x+w]
+
+        # 转换为灰度图像
+        gray_result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+
+        # 二值化图像
+        _, thresholded = cv2.threshold(gray_result, 127, 255, cv2.THRESH_BINARY)
+
+        # 去除边缘黑色块
+        thresholded = remove_black_border(thresholded)
+
+        # 调整图像大小以适应屏幕显示
+        resized = cv2.resize(thresholded, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_LINEAR)
+
+        # 保存提取后的迷宫图像
+        cv2.imwrite("maze1.jpg", resized)
+
+        # 显示结果（可选）
+        cv2.imshow("Result", resized)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+def remove_black_border(image):
+    # 寻找图像的外边框
+    contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 计算最大外边框的边界框
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(image)
+
+    # 填充最大外边框
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, cv2.FILLED)
+
+    # 按位与操作，去除黑色边框
+    result = cv2.bitwise_and(image, mask)
+
+    return result
+
+# 调用函数并传入迷宫图像的文件路径
+image_path = "maze4.jpg"
+print(get_color(image_path))
+extract_maze(image_path)
+
+
+def crop_and_transform(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 二值化图像
+    _, thresholded = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 选择最大轮廓
+    max_contour = max(contours, key=cv2.contourArea)
+
+    # 获取最大轮廓的边界框
+    x, y, w, h = cv2.boundingRect(max_contour)
+
+    # 定义保留的黑边大小
+    border_size = 2
+
+    # 裁剪图像并保留一定的黑边
+    cropped_image = image[max(0, y - border_size):y + h + border_size, max(0, x - border_size):x + w + border_size]
+
+    # 获取裁剪后图像的大小
+    cropped_h, cropped_w = cropped_image.shape[:2]
+
+    # 定义透视变换前后的四个点
+    src_pts = np.float32([[0, 0], [cropped_w, 0], [0, cropped_h], [cropped_w, cropped_h]])
+    dst_pts = np.float32([[border_size, border_size], [cropped_w - border_size, border_size], [border_size, cropped_h - border_size], [cropped_w - border_size, cropped_h - border_size]])
+
+    # 计算透视变换矩阵
+    transform_matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+
+    # 进行透视变换
+    transformed_image = cv2.warpPerspective(cropped_image, transform_matrix, (cropped_w, cropped_h))
+
+    # 显示结果
+    #cv2.imshow("Cropped and Transformed Image", transformed_image)
+    cv2.imwrite("auto.png",transformed_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+# 调用函数并传入图像文件路径
+image_path = "maze.jpg"
+crop_and_transform(image_path)
+
+
+
+
+
+# 读取迷宫图像
+img = cv2.imread('auto.png', cv2.IMREAD_GRAYSCALE)
+# 霍夫圆变换
+circles = cv2.HoughCircles(img, cv2.HOUGH_GRADIENT, dp=1, minDist=22, param1=20, param2=14, minRadius=1, maxRadius=15)
+if circles is not None:
+    # 将圆心坐标和半径转换为整数
+    circles = np.round(circles[0, :]).astype(int)
+
+    # 创建与图像大小相同的黑色图像
+    mask = np.zeros_like(img)
+
+    # 绘制圆形掩膜，将圆内部区域填充为白色
+    for (x, y,r) in circles:
+        cv2.circle(img, (x , y), r+5,
+                   (255, 255, 255), thickness=cv2.FILLED)
+
+
+    # 将原图像与掩膜进行与运算，将圆内部区域变为黑色
+
+    cv2.imwrite("process.png", img)
+
+    # 将坐标映射到21x21的坐标
+    matrix_coordinates = []
+    for (x, y, r) in circles:
+        col = int((x / img.shape[1]) * 20)
+        row = int((y / img.shape[0]) * 20)
+
+        matrix_coordinates.append((row, col))
+
+    # 将宝藏的坐标整合成二维数组
+    cherish = np.array(matrix_coordinates)
+
+    # 判断宝藏数量
+    if len(cherish) == 8:
+        # 输出宝藏的二维数组
+        print("宝藏坐标：")
+        print(cherish)
+    else:
+        raise ValueError("未找到八个宝藏")
+
+img=img = cv2.resize(img, (601, 595))
+# 定义结构元素和迭代次数
+kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+iterations = 9
+
+# 形态学处理：膨胀、腐蚀
+dilated = cv2.dilate(img, kernel, iterations=iterations)
+eroded = cv2.erode(img, kernel, iterations=iterations)
+
+# 求差值并阈值处理
+diff = cv2.absdiff(dilated, eroded)
+_, thresholded = cv2.threshold(diff, 50, 255, cv2.THRESH_BINARY)
+
+# 保存处理后的图像
+cv2.imwrite("processed.png", thresholded)
+
+# 加载图像
+img = Image.open('processed.png')
+
+# 将图像转换为黑白图像，并将其缩放到合适的大小
+img = img.convert('L').resize((441, 441))
+
+# 获取图像像素值
+pixels = np.asarray(img)
+
+# 将图像分割为 19*19 个小块
+blocks = np.split(pixels, 21)
+blocks = [np.split(block, 21, axis=1) for block in blocks]
+blocks = np.array(blocks)
+
+# 计算每个小块中白色像素的数量占总像素数的比例
+ratios = np.zeros((21, 21))
+for i in range(21):
+    for j in range(21):
+        white_pixels = np.sum(blocks[i, j] < 128)
+        ratios[i, j] = white_pixels / blocks[i, j].size
+
+# 调整阈值，优化识别结果
+threshold = 0.5
+matrix = (ratios < threshold).astype(int)
+print(matrix)
+
+
+
+
+
+
+def corrected_cherish(cherish):
+    corrected_coordinates = []
+    for x, y in cherish:
+        # 检测坐标对应的矩阵值是否为墙壁（值为1）
+        if matrix[x][y] == 1:
+            # 宝藏处为墙壁，向远离墙壁的方向微调坐标
+            if x in [0, 20] and y in [0, 20]:
+                # 宝藏处在角落，将其移动到非角落的位置
+                if x == 0:
+                    x += 1
+                else:
+                    x -= 1
+                if y == 0:
+                    y += 1
+                else:
+                    y -= 1
+            else:
+                # 宝藏处不在角落，不进行微调
+                pass
+
+            # 额外逻辑：真正宝藏所在坐标和修正前坐标横纵坐标之间的差值绝对值都不超过1
+            dx = abs(x - cherish[0][0])
+            dy = abs(y - cherish[0][1])
+            if dx <= 1 and dy <= 1:
+                x = cherish[0][0]
+                y = cherish[0][1]
+
+            # 额外逻辑：遍历宝藏坐标周围的点，如果某个点上下左右有三个为墙，则将其设为修正后的坐标
+            for i in range(x - 1, x + 2):
+                for j in range(y - 1, y + 2):
+                    if 0 <= i < 21 and 0 <= j < 21 and matrix[i][j] == 0:
+                        wall_count = 0
+                        if i - 1 >= 0 and matrix[i - 1][j] == 1:
+                            wall_count += 1
+                        if i + 1 < 21 and matrix[i + 1][j] == 1:
+                            wall_count += 1
+                        if j - 1 >= 0 and matrix[i][j - 1] == 1:
+                            wall_count += 1
+                        if j + 1 < 21 and matrix[i][j + 1] == 1:
+                            wall_count += 1
+
+                        if wall_count == 3:
+                            x = i
+                            y = j
+
+        corrected_coordinates.append((x, y))
+    return corrected_coordinates
+
+
+def is_dead_end(maze, x, y):
+    wall_count = 0  # 统计周围墙的数量
+
+    # 检查上方是否是墙
+    if x > 0 and maze[x - 1][y] == 1:
+        wall_count += 1
+
+    # 检查下方是否是墙
+    if x < len(maze) - 1 and maze[x + 1][y] == 1:
+        wall_count += 1
+
+    # 检查左侧是否是墙
+    if y > 0 and maze[x][y - 1] == 1:
+        wall_count += 1
+
+    # 检查右侧是否是墙
+    if y < len(maze[0]) - 1 and maze[x][y + 1] == 1:
+        wall_count += 1
+
+    # 判断是否是死角
+    if wall_count == 3:
+        # 是死角，坐标不变
+        return True
+    else:
+        return False
+
+
+
+def check_and_modify_dead_end(maze, x, y):
+    if is_dead_end(maze, x, y):
+        # 是死角，坐标不变
+        return x, y
+    else:
+        # 不是死角，检测上下左右四个方向，找到死角并修改原坐标
+        if is_dead_end(maze,x-1,y):
+            return x - 1, y
+        elif is_dead_end(maze,x+1,y):
+            return x + 1, y
+        elif is_dead_end(maze,x,y-1):
+            return x, y - 1
+        elif is_dead_end(maze,x,y+1):
+            return x, y + 1
+    return x,y
+
+
+
+cherish = corrected_cherish(cherish)
+cherish = [check_and_modify_dead_end(matrix, x, y) for x, y in cherish]
+
+
+# 打印修正后的宝藏坐标
+print("修正后的宝藏坐标：", cherish)
+
+
+
+
+# 将结果写入 txt 文件
+np.savetxt('maze.txt', matrix, fmt='%s')
+
+
+
+# 起点和终点
+start = (1, 1)
+end = (19, 19)
+
+# 要遍历的宝藏序列
+treasure_sequence = cherish
+
+# 计算两个点之间的路径距离
+def calculate_distance(point1, point2):
+    path = astar(maze, point1, point2)
+    return len(path) - 1 if path else float('inf')
+
+def heuristic(a, b):
+    # 曼哈顿距离
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def astar(array, start, end):
+    neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+    close_set = set()
+    came_from = {}
+    gscore = {start: 0}
+    fscore = {start: heuristic(start, end)}
+    oheap = []
+
+    heapq.heappush(oheap, (fscore[start], start))
+
+    while oheap:
+        current = heapq.heappop(oheap)[1]
+        if current == end:
+            data = []
+            while current in came_from:
+                data.append(current)
+                current = came_from[current]
+            return data
+        close_set.add(current)
+        for i, j in neighbors:
+            neighbor = current[0] + i, current[1] + j
+            tentative_g_score = gscore[current] + heuristic(current, neighbor)
+            if 0 <= neighbor[0] < array.shape[0]:
+                if 0 <= neighbor[1] < array.shape[1]:
+                    if array[neighbor[0]][neighbor[1]] == 1:
+                        continue
+                else:
+                    # 超出边界
+                    continue
+            else:
+                # 超出边界
+                continue
+
+            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, 0):
+                continue
+
+            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
+                came_from[neighbor] = current
+                gscore[neighbor] = tentative_g_score
+                fscore[neighbor] = tentative_g_score + heuristic(neighbor, end)
+                heapq.heappush(oheap, (fscore[neighbor], neighbor))
+
+    return []
+
+
+# 生成 20x20的迷宫
+maze = matrix
+
+
+def Visual_path(maze,start,end,i):
+    # 获取最短路径
+    path = astar(maze, start, end)
+    path.append(start)
+    if not path:
+            print("无法到达终点！")
+    else:
+            if i == 8:
+                print('从第8个宝藏到终点的最短路径', path[::-1])
+            else:
+                print("到第",i+1,'个宝藏的最短路径', path[::-1])
+
+            # 绘制迷宫图
+            fig, ax = plt.subplots()
+            ax.imshow(1 - maze, cmap=plt.cm.binary)
+
+            # 绘制起点和终点
+            ax.scatter(start[1], start[0], marker="*", color="yellow", s=200)
+            ax.scatter(end[1], end[0], marker="*", color="red", s=200)
+
+            # 绘制最短路径
+            for pos in path:
+                ax.plot(pos[1], pos[0], marker="o", color="blue", markersize=10)
+            if i==8:
+                plt.show()
+            return path[::-1]
+
+
+
+current_point = start
+cost_min_cherish = []
+total_distance = 0
+
+while treasure_sequence:
+    distances = {}
+    for treasure in treasure_sequence:
+        distance = calculate_distance(current_point, treasure)
+        distances[treasure] = distance
+    nearest_treasure = min(distances, key=distances.get)
+    cost_min_cherish.append(nearest_treasure)
+    treasure_sequence.remove(nearest_treasure)
+    total_distance += distances[nearest_treasure]
+    current_point = nearest_treasure
+
+# 输出遍历顺序的数组和总的 cost
+print("遍历顺序:", cost_min_cherish)
+print("总的 cost:", total_distance)
+
+cost_min_cherish.insert(0, (1,1))
+cost_min_cherish.append((19,19))
+
+end_time = time.time()
+run_time = end_time - start_time
+print("程序运行时间为：{:.2f}秒".format(run_time))
+
+for row in matrix:
+    for i in range(len(row)):
+        if row[i] == 0:
+            row[i] = 6
+
+#matrix为二维迷宫数组
+print(matrix)
+#cherish为宝藏坐标
+#print(cherish)
+
+
+
+
+
+
+
+
+def is_intersection(maze, position):
+    x, y = position
+    num_options = 0
+
+    # 检查左侧选项
+    if y > 0 and maze[x][y - 1] == 6:
+        num_options += 1
+
+    # 检查右侧选项
+    if y < len(maze[0]) - 1 and maze[x][y + 1] == 6:
+        num_options += 1
+
+    # 检查上方选项
+    if x > 0 and maze[x - 1][y] == 6:
+        num_options += 1
+
+    # 检查下方选项
+    if x < len(maze) - 1 and maze[x + 1][y] == 6:
+        num_options += 1
+
+    # 检查是否是真正的路口
+    if num_options >= 3:
+        return True
+
+    # 检查特殊情况（两个路选项，且不在同一行或同一列）
+    if num_options == 2:
+        if y > 0 and y < len(maze[0]) - 1:
+            if maze[x][y - 1] == 6 and maze[x][y + 1] == 6:
+                return False
+        if x > 0 and x < len(maze) - 1:
+            if maze[x - 1][y] == 6 and maze[x + 1][y] == 6:
+                return False
+
+    return True
+
+
+
+
+
+def get_instruction(path, i):
+    index = i  # 获取坐标在路径中的索引
+    prev_x, prev_y = path[index - 1]
+    curr_x, curr_y = path[index]
+
+    if index < len(path) - 1:
+        next_x, next_y = path[index + 1]
+    else:
+        # 下一个位置不存在时的处理方式
+        # 这里返回一个默认的指令 "11"
+        return "11"
+
+    # 判断左转或右转
+    if (curr_x - prev_x) * (next_y - curr_y) - (curr_y - prev_y) * (next_x - curr_x) > 0:
+        return "10"
+    elif (curr_x - prev_x) * (next_y - curr_y) - (curr_y - prev_y) * (next_x - curr_x) < 0:
+        return "01"
+    else:
+        return "11"
+
+
+
+def get_distance(current_pos, next_pos):
+    # 计算两个相邻自定义路口之间的距离
+    cur_x, cur_y = current_pos
+    next_x, next_y = next_pos
+    return abs(next_x - cur_x) + abs(next_y - cur_y)
+
+
+def generate_road_book(maze, paths):
+    road_book = ""
+    num=1
+    prev_intersection = paths[1]
+    total_paths = len(paths) - 1
+    while(is_intersection(maze,prev_intersection)!=1):
+        num+=1
+        prev_intersection = paths[num]
+        pass
+    counter=num
+
+    for i in range(1+num, total_paths + 1):
+        current_pos = paths[i]
+        if is_intersection(maze, current_pos):
+            if i == total_paths:
+                last_bit = "1"  # 最后一个生成的路书
+            else:
+                last_bit = "0"  # 不是最后一个生成的路书
+
+            if prev_intersection is not None:
+                distance = get_distance(prev_intersection, current_pos)
+                instruction = get_instruction(paths, counter)
+                road_book += format(distance, "05b") + instruction + last_bit
+            prev_intersection = current_pos
+            counter=i
+
+    return road_book
+
+all_road_books = ""
+for i in range(0, 9):
+    path = Visual_path(maze, cost_min_cherish[i], cost_min_cherish[i+1], i)
+    road_book = generate_road_book(matrix, path)
+    all_road_books += road_book
+    print("Road Book:", road_book)
+    #print(path)
+
+print("All Road Books:\n", all_road_books)
+
+road_book=all_road_books
+
+# 字符串转换为整数数组
+road_book_array = [int(num) for num in road_book]
+
+# 将数组按4位分组，并转换为16进制数
+hex_array = []
+for i in range(0, len(road_book_array), 8):
+    binary_string = ''.join(map(str, road_book_array[i:i+8]))  # 将4位二进制数转换为字符串
+    decimal_value = int(binary_string, 2)  # 将二进制字符串转换为十进制数
+    hex_value = format(decimal_value, '02X')  # 将十进制数转换为4位16进制字符串
+    hex_array.append(hex_value)
+
+# 打印结果
+print(hex_array)
+
+
+# 创建空的整数数组
+int_array = []
+
+
+def connect_to_serial_port():
+    # 查找可用串口
+    available_ports = list(serial.tools.list_ports.comports())
+
+    for port in available_ports:
+        if port.vid == 4292:  # 供应商ID为4292
+            ser = serial.Serial(port.device)
+            return ser
+
+    print("No matching serial port found")
+    return None
+
+
+# 连接到指定供应商ID的串口设备
+ser = connect_to_serial_port()
+
+if ser is not None:
+    print("Serial port connected:", ser.port)
+
+    # 设置串口参数
+    ser.baudrate = 57600
+    # 其他操作...
+
+
+
+# 将迷宫地图转换为字节串
+map_bytes = bytearray()
+for row in matrix:
+    for cell in row:
+        map_bytes.append(cell)
+
+# 发送迷宫地图数据
+ser.write(map_bytes)
+
+
+
+# 发送16进制数组
+for hex_value in hex_array:
+    # 将16进制字符串转换为字节数据
+    byte_value = bytes.fromhex(hex_value)
+
+    # 发送字节数据到串口
+    ser.write(byte_value)
+
+    # 将16进制字符串转换为整数并添加到整数数组
+    int_value = int(hex_value, 16)
+    int_array.append(int_value)
+
+
+# 将十六进制数值30转换为字节数据
+data = bytes([0x30])
+
+# 发送数据到串口
+ser.write(data)
+
+# 关闭串口
+ser.close()
+
+
+7.+红蓝方
+import itertools
+import time
+import serial.tools.list_ports
+import matplotlib.pyplot as plt
+
+# 定义 A* 算法和启发函数
+import heapq
+start_time = time.time()
+import serial
+from PIL import Image
+import cv2
+import numpy as np
+
+def get_color(image_path):
+    image = cv2.imread(image_path)
+    height, width, _ = image.shape
+
+    # 获取左上角和右下角方块的位置
+    left_top_box = (0, 0, width//2, height//2)
+    right_bottom_box = (width//2, height//2, width, height)
+
+    # 获取左上角和右下角方块的颜色
+    left_top_color = get_color_type(image, *left_top_box)
+    right_bottom_color = get_color_type(image, *right_bottom_box)
+
+    if left_top_color == right_bottom_color:
+        return "Unknown"
+
+    if left_top_color == "Blue" and right_bottom_color == "Red":
+        return "0x01"#蓝方
+    elif left_top_color == "Red" and right_bottom_color == "Blue":
+        return "0x10"#红方
+
+    return "Unknown"
+
+def get_color_type(image, x1, y1, x2, y2):
+    region = image[y1:y2, x1:x2]
+
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+
+    lower_blue = np.array([100, 50, 50])
+    upper_blue = np.array([130, 255, 255])
+    mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
+    blue_pixels = cv2.countNonZero(mask_blue)
+
+    lower_red = np.array([0, 50, 50])
+    upper_red = np.array([20, 255, 255])
+    mask_red = cv2.inRange(hsv, lower_red, upper_red)
+    red_pixels = cv2.countNonZero(mask_red)
+
+    total_pixels = (x2 - x1) * (y2 - y1)
+    blue_ratio = blue_pixels / total_pixels
+    red_ratio = red_pixels / total_pixels
+
+    if blue_ratio > 0.01:  # 蓝色块阈值
+        return "Blue"
+    elif red_ratio > 0.01:  # 红色块阈值
+        return "Red"
+    else:
+        return "Unknown"
+
+def crop_image(image_path, width_threshold):
+    image = Image.open(image_path)
+    width, height = image.size
+
+    if height-width > width_threshold:
+        # 计算裁剪后的高度
+        new_height = width+5
+
+        # 计算裁剪的起始位置
+        top = (height - new_height) // 2
+        bottom = top + new_height
+
+        # 裁剪图片
+        cropped_image = image.crop((0, top, width, bottom))
+        cropped_image.show()  # 可选：显示裁剪后的图片
+    else:
+        print("Image width is within the threshold. No cropping needed.")
+
+
+
+
+def extract_maze(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 应用Canny边缘检测
+    edges = cv2.Canny(gray, 50, 150)
+
+    # 膨胀操作，填充边缘间隙
+    kernel = np.ones((3, 3), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 找到最大的矩形轮廓
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(gray)
+
+    # 填充最大轮廓
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, -1)
+
+    # 按位与操作，去除黑色矩形部分
+    result = cv2.bitwise_and(image, image, mask=mask)
+
+    # 进行透视变换，提取迷宫图
+    if max_contour is not None:
+        # 近似多边形轮廓
+        epsilon = 0.05 * cv2.arcLength(max_contour, True)
+        approx = cv2.approxPolyDP(max_contour, epsilon, True)
+
+        # 获取矩形的顶点坐标
+        rect_pts = approx.reshape(4, 2)
+
+        # 裁剪图像到有效区域内
+        x, y, w, h = cv2.boundingRect(max_contour)
+        result = result[y:y+h, x:x+w]
+
+        # 转换为灰度图像
+        gray_result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+
+        # 二值化图像
+        _, thresholded = cv2.threshold(gray_result, 127, 255, cv2.THRESH_BINARY)
+
+        # 去除边缘黑色块
+        thresholded = remove_black_border(thresholded)
+
+        # 调整图像大小以适应屏幕显示
+        resized = cv2.resize(thresholded, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_LINEAR)
+
+        # 保存提取后的迷宫图像
+        cv2.imwrite("maze1.jpg", resized)
+
+        # 显示结果（可选）
+        cv2.imshow("Result", resized)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+def remove_black_border(image):
+    # 寻找图像的外边框
+    contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 计算最大外边框的边界框
+    max_area = 0
+    max_contour = None
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > max_area:
+            max_area = area
+            max_contour = contour
+
+    # 创建掩码图像
+    mask = np.zeros_like(image)
+
+    # 填充最大外边框
+    if max_contour is not None:
+        cv2.drawContours(mask, [max_contour], 0, 255, cv2.FILLED)
+
+    # 按位与操作，去除黑色边框
+    result = cv2.bitwise_and(image, mask)
+
+    return result
+
+# 调用函数并传入迷宫图像的文件路径
+image_path = "maze3.jpg"
+print(get_color(image_path))
+
+
+def crop_and_transform(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 二值化图像
+    _, thresholded = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 选择最大轮廓
+    max_contour = max(contours, key=cv2.contourArea)
+
+    # 获取最大轮廓的边界框
+    x, y, w, h = cv2.boundingRect(max_contour)
+
+    # 定义保留的黑边大小
+    border_size = 2
+
+    # 裁剪图像并保留一定的黑边
+    cropped_image = image[max(0, y - border_size):y + h + border_size, max(0, x - border_size):x + w + border_size]
+
+    # 获取裁剪后图像的大小
+    cropped_h, cropped_w = cropped_image.shape[:2]
+
+    # 定义透视变换前后的四个点
+    src_pts = np.float32([[0, 0], [cropped_w, 0], [0, cropped_h], [cropped_w, cropped_h]])
+    dst_pts = np.float32([[border_size, border_size], [cropped_w - border_size, border_size], [border_size, cropped_h - border_size], [cropped_w - border_size, cropped_h - border_size]])
+
+    # 计算透视变换矩阵
+    transform_matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+
+    # 进行透视变换
+    transformed_image = cv2.warpPerspective(cropped_image, transform_matrix, (cropped_w, cropped_h))
+
+    # 显示结果
+    #cv2.imshow("Cropped and Transformed Image", transformed_image)
+    cv2.imwrite("auto.png",transformed_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+# 调用函数并传入图像文件路径
+extract_maze(image_path)
+image_path = "maze1.jpg"
+crop_and_transform(image_path)
+#对maze1的宽和高进行比较，裁剪掉出入口造成的高度方向的黑边
+width_threshold = 10  # 宽度阈值
+crop_image(image_path, width_threshold)
+
+
+
+
+
+# 读取迷宫图像
+img = cv2.imread('auto.png', cv2.IMREAD_GRAYSCALE)
+# 霍夫圆变换
+circles = cv2.HoughCircles(img, cv2.HOUGH_GRADIENT, dp=1, minDist=22, param1=20, param2=14, minRadius=1, maxRadius=15)
+if circles is not None:
+    # 将圆心坐标和半径转换为整数
+    circles = np.round(circles[0, :]).astype(int)
+
+    # 创建与图像大小相同的黑色图像
+    mask = np.zeros_like(img)
+
+    # 绘制圆形掩膜，将圆内部区域填充为白色
+    for (x, y,r) in circles:
+        cv2.circle(img, (x , y), r+5,
+                   (255, 255, 255), thickness=cv2.FILLED)
+
+
+    # 将原图像与掩膜进行与运算，将圆内部区域变为黑色
+
+    cv2.imwrite("process.png", img)
+
+    # 将坐标映射到21x21的坐标
+    matrix_coordinates = []
+    for (x, y, r) in circles:
+        col = int((x / img.shape[1]) * 20)
+        row = int((y / img.shape[0]) * 20)
+
+        matrix_coordinates.append((row, col))
+
+    # 将宝藏的坐标整合成二维数组
+    cherish = np.array(matrix_coordinates)
+
+    # 判断宝藏数量
+    if len(cherish) == 8:
+        # 输出宝藏的二维数组
+        print("宝藏坐标：")
+        print(cherish)
+    else:
+        raise ValueError("未找到八个宝藏")
+
+img=img = cv2.resize(img, (601, 595))
+# 定义结构元素和迭代次数
+kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+iterations = 9
+
+# 形态学处理：膨胀、腐蚀
+dilated = cv2.dilate(img, kernel, iterations=iterations)
+eroded = cv2.erode(img, kernel, iterations=iterations)
+
+# 求差值并阈值处理
+diff = cv2.absdiff(dilated, eroded)
+_, thresholded = cv2.threshold(diff, 50, 255, cv2.THRESH_BINARY)
+
+# 保存处理后的图像
+cv2.imwrite("processed.png", thresholded)
+
+# 加载图像
+img = Image.open('processed.png')
+
+# 将图像转换为黑白图像，并将其缩放到合适的大小
+img = img.convert('L').resize((441, 441))
+
+# 获取图像像素值
+pixels = np.asarray(img)
+
+# 将图像分割为 19*19 个小块
+blocks = np.split(pixels, 21)
+blocks = [np.split(block, 21, axis=1) for block in blocks]
+blocks = np.array(blocks)
+
+# 计算每个小块中白色像素的数量占总像素数的比例
+ratios = np.zeros((21, 21))
+for i in range(21):
+    for j in range(21):
+        white_pixels = np.sum(blocks[i, j] < 128)
+        ratios[i, j] = white_pixels / blocks[i, j].size
+
+# 调整阈值，优化识别结果
+threshold = 0.5
+matrix = (ratios < threshold).astype(int)
+print(matrix)
+
+
+
+
+
+
+def corrected_cherish(cherish):
+    corrected_coordinates = []
+    for x, y in cherish:
+        # 检测坐标对应的矩阵值是否为墙壁（值为1）
+        if matrix[x][y] == 1:
+            # 宝藏处为墙壁，向远离墙壁的方向微调坐标
+            if x in [0, 20] and y in [0, 20]:
+                # 宝藏处在角落，将其移动到非角落的位置
+                if x == 0:
+                    x += 1
+                else:
+                    x -= 1
+                if y == 0:
+                    y += 1
+                else:
+                    y -= 1
+            else:
+                # 宝藏处不在角落，不进行微调
+                pass
+
+            # 额外逻辑：真正宝藏所在坐标和修正前坐标横纵坐标之间的差值绝对值都不超过1
+            dx = abs(x - cherish[0][0])
+            dy = abs(y - cherish[0][1])
+            if dx <= 1 and dy <= 1:
+                x = cherish[0][0]
+                y = cherish[0][1]
+
+            # 额外逻辑：遍历宝藏坐标周围的点，如果某个点上下左右有三个为墙，则将其设为修正后的坐标
+            for i in range(x - 1, x + 2):
+                for j in range(y - 1, y + 2):
+                    if 0 <= i < 21 and 0 <= j < 21 and matrix[i][j] == 0:
+                        wall_count = 0
+                        if i - 1 >= 0 and matrix[i - 1][j] == 1:
+                            wall_count += 1
+                        if i + 1 < 21 and matrix[i + 1][j] == 1:
+                            wall_count += 1
+                        if j - 1 >= 0 and matrix[i][j - 1] == 1:
+                            wall_count += 1
+                        if j + 1 < 21 and matrix[i][j + 1] == 1:
+                            wall_count += 1
+
+                        if wall_count == 3:
+                            x = i
+                            y = j
+
+        corrected_coordinates.append((x, y))
+    return corrected_coordinates
+
+
+def is_dead_end(maze, x, y):
+    wall_count = 0  # 统计周围墙的数量
+
+    # 检查上方是否是墙
+    if x > 0 and maze[x - 1][y] == 1:
+        wall_count += 1
+
+    # 检查下方是否是墙
+    if x < len(maze) - 1 and maze[x + 1][y] == 1:
+        wall_count += 1
+
+    # 检查左侧是否是墙
+    if y > 0 and maze[x][y - 1] == 1:
+        wall_count += 1
+
+    # 检查右侧是否是墙
+    if y < len(maze[0]) - 1 and maze[x][y + 1] == 1:
+        wall_count += 1
+
+    # 判断是否是死角
+    if wall_count == 3:
+        # 是死角，坐标不变
+        return True
+    else:
+        return False
+
+
+
+def check_and_modify_dead_end(maze, x, y):
+    if is_dead_end(maze, x, y):
+        # 是死角，坐标不变
+        return x, y
+    else:
+        # 不是死角，检测上下左右四个方向，找到死角并修改原坐标
+        if is_dead_end(maze,x-1,y):
+            return x - 1, y
+        elif is_dead_end(maze,x+1,y):
+            return x + 1, y
+        elif is_dead_end(maze,x,y-1):
+            return x, y - 1
+        elif is_dead_end(maze,x,y+1):
+            return x, y + 1
+    return x,y
+
+
+
+cherish = corrected_cherish(cherish)
+cherish = [check_and_modify_dead_end(matrix, x, y) for x, y in cherish]
+
+
+# 打印修正后的宝藏坐标
+print("修正后的宝藏坐标：", cherish)
+
+
+
+
+# 将结果写入 txt 文件
+np.savetxt('maze.txt', matrix, fmt='%s')
+
+
+
+# 起点和终点
+start = (1, 1)
+end = (19, 19)
+
+# 要遍历的宝藏序列
+treasure_sequence = cherish
+
+# 计算两个点之间的路径距离
+def calculate_distance(point1, point2):
+    path = astar(maze, point1, point2)
+    return len(path) - 1 if path else float('inf')
+
+def heuristic(a, b):
+    # 曼哈顿距离
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def astar(array, start, end):
+    neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+    close_set = set()
+    came_from = {}
+    gscore = {start: 0}
+    fscore = {start: heuristic(start, end)}
+    oheap = []
+
+    heapq.heappush(oheap, (fscore[start], start))
+
+    while oheap:
+        current = heapq.heappop(oheap)[1]
+        if current == end:
+            data = []
+            while current in came_from:
+                data.append(current)
+                current = came_from[current]
+            return data
+        close_set.add(current)
+        for i, j in neighbors:
+            neighbor = current[0] + i, current[1] + j
+            tentative_g_score = gscore[current] + heuristic(current, neighbor)
+            if 0 <= neighbor[0] < array.shape[0]:
+                if 0 <= neighbor[1] < array.shape[1]:
+                    if array[neighbor[0]][neighbor[1]] == 1:
+                        continue
+                else:
+                    # 超出边界
+                    continue
+            else:
+                # 超出边界
+                continue
+
+            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, 0):
+                continue
+
+            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
+                came_from[neighbor] = current
+                gscore[neighbor] = tentative_g_score
+                fscore[neighbor] = tentative_g_score + heuristic(neighbor, end)
+                heapq.heappush(oheap, (fscore[neighbor], neighbor))
+
+    return []
+
+
+# 生成 20x20的迷宫
+maze = matrix
+
+
+def Visual_path(maze,start,end,i):
+    # 获取最短路径
+    path = astar(maze, start, end)
+    path.append(start)
+    if not path:
+            print("无法到达终点！")
+    else:
+            if i == 8:
+                print('从第8个宝藏到终点的最短路径', path[::-1])
+            else:
+                print("到第",i+1,'个宝藏的最短路径', path[::-1])
+
+            # 绘制迷宫图
+            fig, ax = plt.subplots()
+            ax.imshow(1 - maze, cmap=plt.cm.binary)
+
+            # 绘制起点和终点
+            ax.scatter(start[1], start[0], marker="*", color="yellow", s=200)
+            ax.scatter(end[1], end[0], marker="*", color="red", s=200)
+
+            # 绘制最短路径
+            for pos in path:
+                ax.plot(pos[1], pos[0], marker="o", color="blue", markersize=10)
+            if i==8:
+                plt.show()
+            return path[::-1]
+
+
+
+current_point = start
+cost_min_cherish = []
+total_distance = 0
+
+while treasure_sequence:
+    distances = {}
+    for treasure in treasure_sequence:
+        distance = calculate_distance(current_point, treasure)
+        distances[treasure] = distance
+    nearest_treasure = min(distances, key=distances.get)
+    cost_min_cherish.append(nearest_treasure)
+    treasure_sequence.remove(nearest_treasure)
+    total_distance += distances[nearest_treasure]
+    current_point = nearest_treasure
+
+# 输出遍历顺序的数组和总的 cost
+print("遍历顺序:", cost_min_cherish)
+print("总的 cost:", total_distance)
+
+cost_min_cherish.insert(0, (1,1))
+cost_min_cherish.append((19,19))
+
+end_time = time.time()
+run_time = end_time - start_time
+print("程序运行时间为：{:.2f}秒".format(run_time))
+
+for row in matrix:
+    for i in range(len(row)):
+        if row[i] == 0:
+            row[i] = 6
+
+#matrix为二维迷宫数组
+print(matrix)
+#cherish为宝藏坐标
+#print(cherish)
+
+
+
+
+
+
+
+
+def is_intersection(maze, position):
+    x, y = position
+    num_options = 0
+
+    # 检查左侧选项
+    if y > 0 and maze[x][y - 1] == 6:
+        num_options += 1
+
+    # 检查右侧选项
+    if y < len(maze[0]) - 1 and maze[x][y + 1] == 6:
+        num_options += 1
+
+    # 检查上方选项
+    if x > 0 and maze[x - 1][y] == 6:
+        num_options += 1
+
+    # 检查下方选项
+    if x < len(maze) - 1 and maze[x + 1][y] == 6:
+        num_options += 1
+
+    # 检查是否是真正的路口
+    if num_options >= 3:
+        return True
+
+    # 检查特殊情况（两个路选项，且不在同一行或同一列）
+    if num_options == 2:
+        if y > 0 and y < len(maze[0]) - 1:
+            if maze[x][y - 1] == 6 and maze[x][y + 1] == 6:
+                return False
+        if x > 0 and x < len(maze) - 1:
+            if maze[x - 1][y] == 6 and maze[x + 1][y] == 6:
+                return False
+
+    return True
+
+
+
+
+
+def get_instruction(path, i):
+    index = i  # 获取坐标在路径中的索引
+    prev_x, prev_y = path[index - 1]
+    curr_x, curr_y = path[index]
+
+    if index < len(path) - 1:
+        next_x, next_y = path[index + 1]
+    else:
+        # 下一个位置不存在时的处理方式
+        # 这里返回一个默认的指令 "11"
+        return "11"
+
+    # 判断左转或右转
+    if (curr_x - prev_x) * (next_y - curr_y) - (curr_y - prev_y) * (next_x - curr_x) > 0:
+        return "10"
+    elif (curr_x - prev_x) * (next_y - curr_y) - (curr_y - prev_y) * (next_x - curr_x) < 0:
+        return "01"
+    else:
+        return "11"
+
+
+
+def get_distance(current_pos, next_pos):
+    # 计算两个相邻自定义路口之间的距离
+    cur_x, cur_y = current_pos
+    next_x, next_y = next_pos
+    return abs(next_x - cur_x) + abs(next_y - cur_y)
+
+
+def generate_road_book(maze, paths):
+    road_book = ""
+    num=1
+    prev_intersection = paths[1]
+    total_paths = len(paths) - 1
+    while(is_intersection(maze,prev_intersection)!=1):
+        num+=1
+        prev_intersection = paths[num]
+        pass
+    counter=num
+
+    for i in range(1+num, total_paths + 1):
+        current_pos = paths[i]
+        if is_intersection(maze, current_pos):
+            if i == total_paths:
+                last_bit = "1"  # 最后一个生成的路书
+            else:
+                last_bit = "0"  # 不是最后一个生成的路书
+
+            if prev_intersection is not None:
+                distance = get_distance(prev_intersection, current_pos)
+                instruction = get_instruction(paths, counter)
+                road_book += format(distance, "05b") + instruction + last_bit
+            prev_intersection = current_pos
+            counter=i
+
+    return road_book
+
+all_road_books = ""
+for i in range(0, 9):
+    path = Visual_path(maze, cost_min_cherish[i], cost_min_cherish[i+1], i)
+    road_book = generate_road_book(matrix, path)
+    all_road_books += road_book
+    print("Road Book:", road_book)
+    #print(path)
+
+print("All Road Books:\n", all_road_books)
+
+road_book=all_road_books
+
+# 字符串转换为整数数组
+road_book_array = [int(num) for num in road_book]
+
+# 将数组按4位分组，并转换为16进制数
+hex_array = []
+for i in range(0, len(road_book_array), 8):
+    binary_string = ''.join(map(str, road_book_array[i:i+8]))  # 将4位二进制数转换为字符串
+    decimal_value = int(binary_string, 2)  # 将二进制字符串转换为十进制数
+    hex_value = format(decimal_value, '02X')  # 将十进制数转换为4位16进制字符串
+    hex_array.append(hex_value)
+
+# 打印结果
+print(hex_array)
+
+
+# 创建空的整数数组
+int_array = []
+
+
+def connect_to_serial_port():
+    # 查找可用串口
+    available_ports = list(serial.tools.list_ports.comports())
+
+    for port in available_ports:
+        if port.vid == 4292:  # 供应商ID为4292
+            ser = serial.Serial(port.device)
+            return ser
+
+    print("No matching serial port found")
+    return None
+
+
+# 连接到指定供应商ID的串口设备
+ser = connect_to_serial_port()
+
+if ser is not None:
+    print("Serial port connected:", ser.port)
+
+    # 设置串口参数
+    ser.baudrate = 57600
+    # 其他操作...
+
+
+
+# 将迷宫地图转换为字节串
+map_bytes = bytearray()
+for row in matrix:
+    for cell in row:
+        map_bytes.append(cell)
+
+# 发送迷宫地图数据
+ser.write(map_bytes)
+
+
+#发送红蓝方判断信息
+
+#color_bytes=bytes.fromhex(get_color(image_path))
+#ser.write(color_bytes)
+
+# 发送16进制数组
+for hex_value in hex_array:
+    # 将16进制字符串转换为字节数据
+    byte_value = bytes.fromhex(hex_value)
+
+    # 发送字节数据到串口
+    ser.write(byte_value)
+
+    # 将16进制字符串转换为整数并添加到整数数组
+    int_value = int(hex_value, 16)
+    int_array.append(int_value)
+
+
+# 将十六进制数值30转换为字节数据
+data = bytes([0x30])
+
+# 发送数据到串口
+ser.write(data)
+
+# 关闭串口
+ser.close()
+
