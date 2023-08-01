@@ -1,0 +1,841 @@
+import random
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.font_manager import FontProperties  # 导入字体管理器
+def is_symmetric(point1, point2, center):
+    # 判断两个点是否关于中心点对称
+    x1, y1 = point1
+    x2, y2 = point2
+    cx, cy = center
+    return (x1 - cx) == (cx - x2) and (y1 - cy) == (cy - y2)
+def generate_treasure_status(cherish):
+    treasures = cherish
+    while True:
+    # Divide the maze into four quadrants
+        upper_left = []
+        upper_right = []
+        lower_left = []
+        lower_right = []
+
+        for x, y in treasures:
+            if x <= 10 and y <= 10:
+                upper_left.append((x, y))
+            elif x > 10 and y <= 10:
+                upper_right.append((x, y))
+            elif x <= 10 and y > 10:
+                lower_left.append((x, y))
+            else:
+                lower_right.append((x, y))
+
+        # Shuffle each quadrant and set one treasure in each
+        random.shuffle(upper_left)
+        random.shuffle(upper_right)
+        random.shuffle(lower_left)
+        random.shuffle(lower_right)
+
+        treasures_status = {}
+
+        # 生成一个1x4的真值数组，初始值都为False
+        zero_one = [False, False, False, False]
+
+        # 随机选择3个位置并设置为True
+        random_indices = random.sample(range(4), 3)
+        for idx in random_indices:
+            zero_one[idx] = True
+
+        # 打乱数组顺序以保证随机性
+        random.shuffle(zero_one)
+
+        # Set one random treasure in each quadrant as True
+        treasures_status[upper_left.pop()] = zero_one[0]
+        treasures_status[upper_right.pop()] = zero_one[1]
+        treasures_status[lower_left.pop()] = zero_one[2]
+        treasures_status[lower_right.pop()] = zero_one[3]
+
+        # Set the rest of the treasures in each quadrant as False
+        for treasure in upper_left:
+            treasures_status[treasure] = False
+        for treasure in upper_right:
+            treasures_status[treasure] = False
+        for treasure in lower_left:
+            treasures_status[treasure] = False
+        for treasure in lower_right:
+            treasures_status[treasure] = False
+
+        # Find the true treasures
+        true_treasures = [point for point, is_true_treasure in treasures_status.items() if is_true_treasure]
+
+
+        symmetric_count = 0
+        for i in range(3):
+            for j in range(i+1, 3):
+                if is_symmetric(true_treasures[i], true_treasures[j], (10, 10)):
+                    symmetric_count += 1
+        if symmetric_count>0:
+            continue
+
+        return treasures_status
+
+
+
+
+
+import time
+import serial.tools.list_ports
+import matplotlib.pyplot as plt
+
+# 定义 A* 算法和启发函数
+import heapq
+start_time = time.time()
+import serial
+from PIL import Image
+import cv2
+import numpy as np
+
+
+# 步骤3：识别四角定位点轮廓
+def find_calibration_points(contours):
+    calibration_points = []
+    for contour in contours:
+        epsilon = 0.15 * cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, epsilon, True)
+
+        # 判断是否为方形
+        if len(approx) == 4:
+            # 计算轮廓的中心点坐标
+            M = cv2.moments(approx)
+            cX = int(M["m10"] / M["m00"])
+            cY = int(M["m01"] / M["m00"])
+
+            # 去除重复的坐标点
+            if (cX, cY) not in calibration_points:
+                calibration_points.append((cX, cY))
+
+    return calibration_points
+
+
+def find_corners(coordinates):
+    if not coordinates:
+        return None, None, None, None
+
+    min_x, min_y = coordinates[0]
+    max_x, max_y = coordinates[0]
+
+    for x, y in coordinates:
+        min_x = min(min_x, x)
+        min_y = min(min_y, y)
+        max_x = max(max_x, x)
+        max_y = max(max_y, y)
+
+    top_left = (min_x, min_y)
+    top_right = (max_x, min_y)
+    bottom_right = (max_x, max_y)
+    bottom_left = (min_x, max_y)
+
+    return [top_left, top_right, bottom_right, bottom_left]
+
+
+
+def extract_maze(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 应用Canny边缘检测
+    edges = cv2.Canny(image, 50, 150)
+
+    # 膨胀操作，填充边缘间隙
+    kernel = np.ones((3, 3), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+
+    # 初始化变量来跟踪最大内接矩形
+    max_area = 0
+    max_rect = None
+
+    # 提取最大内接矩形并获取轮廓坐标
+    for contour in contours:
+        # 计算轮廓的凸包
+        hull = cv2.convexHull(contour)
+
+        if len(hull) < 3:
+            continue
+
+        # 找到最大内接矩形的4个顶点
+        for i in range(len(hull)):
+            for j in range(i + 1, len(hull)):
+                for k in range(j + 1, len(hull)):
+                    for l in range(k + 1, len(hull)):
+                        rect_points = [hull[i], hull[j], hull[k], hull[l]]
+                        area = cv2.contourArea(np.array(rect_points))
+                        if area > max_area:
+                            max_area = area
+                            max_rect = rect_points
+
+    if max_rect is not None:
+        # 绘制最大内接矩形
+        max_rect = np.vstack(max_rect)
+        cv2.drawContours(image, [np.array(max_rect)], 0, (0, 255, 0), 2)
+
+        # 获取最大内接矩形的右上角和左上角顶点坐标
+        x = (max_rect[2][0] + max_rect[3][0])/2
+        y = max_rect[0][1]
+        w = (max_rect[0][0]+max_rect[1][0])/2-x
+        h = max_rect[2][1]-max_rect[0][1]-10
+        # 将坐标转换为整数
+        x, y, w, h = int(x), int(y), int(w), int(h)        # 裁剪并显示结果
+        img = image[y:y + h, x:x + w]
+        shape = img.shape
+        max_dimension = max(shape)
+        resized_img = cv2.resize(img, (max_dimension, max_dimension))
+        cv2.imwrite("cropped.jpg", resized_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+
+
+
+
+
+
+def perspective_correction(image, points):
+    if len(points) != 4:
+        raise ValueError("输入的定位点应包含四个点。")
+
+
+    # 找到左上角点，即x和y都最小的点
+    left_top_point = min(points, key=lambda point: (point[0], point[1]))
+
+    # 将左上角点从原列表中移除
+    points.remove(left_top_point)
+
+    # 对剩余的三个点按照极坐标排序，即相对于左上角点的角度和距离
+    sorted_points = sorted(points, key=lambda point: (-np.arctan2(point[1] - left_top_point[1], point[0] - left_top_point[0]),
+                                                      np.sqrt((point[0] - left_top_point[0])**2 + (point[1] - left_top_point[1])**2)))
+
+
+    # 将左上角点插入到排序后的列表首位，得到按照顺时针顺序排序的四个点
+    sorted_points.insert(0, left_top_point)
+
+    points = sorted_points
+
+
+
+    # 定义透视变换的目标点，即新的图像顶点
+    dst_points = np.array([(0, 0), (0, image.shape[0]), (image.shape[1], image.shape[0]), (image.shape[1], 0)], dtype="float32")
+
+    # 计算透视变换矩阵
+    perspective_matrix = cv2.getPerspectiveTransform(np.array(points, dtype="float32"), dst_points)
+
+    # 进行透视变换校正
+    corrected_image = cv2.warpPerspective(image, perspective_matrix, (image.shape[1], image.shape[0]))
+
+    return corrected_image
+
+
+
+
+
+
+def add_black_border(image_path, border_size, black_width):
+    # 读取图像
+    img = cv2.imread(image_path)
+
+    # 获取图像尺寸
+    height, width = img.shape[:2]
+
+    # 在原图像上绘制黑色矩形以创建黑色边框
+    cv2.rectangle(img, (0, 0), (width - 1, height - 1), (0, 0, 0), black_width)
+
+
+
+    # 等待键盘输入，单位为毫秒（0表示无限期等待，直到按下任意键）
+    cv2.waitKey(0)
+
+    # 关闭图像窗口
+    cv2.destroyAllWindows()
+
+    # 保存结果
+    cv2.imwrite('auto.png', img)
+
+
+
+
+
+
+
+
+
+
+
+
+def detect_black_lines(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 将图像转换为灰度图
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 将图像进行二值化处理，将黑色边缘转为白色，方便进行形态学操作
+    _, binary_image = cv2.threshold(gray_image, 30, 255, cv2.THRESH_BINARY_INV)
+
+    # 定义一个矩形核，用于进行形态学膨胀操作
+    kernel = np.ones((14,14),np.uint8)
+
+    # 进行形态学膨胀操作，填充黑线区域
+    dilated_image = cv2.dilate(binary_image, kernel, iterations=1)
+    cv2.imwrite('final.png',dilated_image)
+
+    # 将图像分为10x10的区域
+    rows, cols = 10, 10
+    region_height, region_width = dilated_image.shape[0] // rows, dilated_image.shape[1] // cols
+
+    # 定义用于黑线判断的阈值
+    threshold = region_height * region_width * 2.5# 根据需要调整阈值*****    1.8-6.5为临界值
+
+    # 存储结果的列表
+
+    results = []
+
+    # 遍历每个区域
+    for i in range(rows):
+        for j in range(cols):
+            # 获取当前区域的坐标范围（扩展非边界格子的检测范围）
+            y_start, y_end = max(0, i * region_height), min((i + 1) * region_height + 10, dilated_image.shape[0])
+            x_start, x_end = max(0, j * region_width ), min((j + 1) * region_width + 10, dilated_image.shape[1])
+            # 提取当前区域
+            region = dilated_image[y_start:y_end, x_start:x_end]
+
+            # 计算当前区域沿行和列的直方图
+            row_histogram = np.sum(region, axis=1)  # 沿行求和
+            col_histogram = np.sum(region, axis=0)  # 沿列求和
+
+            # 判断上下左右是否存在黑线
+            top_line = 1 if np.max(row_histogram[:5]) >= threshold else 0
+            bottom_line = 1 if np.max(row_histogram[-5:]) >= threshold else 0
+            left_line = 1 if np.max(col_histogram[:5]) >= threshold else 0
+            right_line = 1 if np.max(col_histogram[-5:]) >= threshold else 0
+
+            # 对最外层格子进行处理，置为1
+            if i == 0:
+                top_line = 1
+            if i == rows - 1:
+                bottom_line = 1
+            if j == 0:
+                left_line = 1
+            if j == cols - 1:
+                right_line = 1
+
+            # 添加结果到列表中
+            results.append([top_line, bottom_line, left_line, right_line])
+
+    return results
+
+
+
+
+def create_array():
+    size = 21
+    array = [[0] * size for _ in range(size)]
+
+    # Fill the outermost layer with 1
+    for i in range(size):
+        array[0][i] = 1
+        array[size - 1][i] = 1
+        array[i][0] = 1
+        array[i][size - 1] = 1
+
+    return array
+
+
+
+def fill_maze(maze, data_array):
+    # 首先，检查输入数组是否合法
+    if len(maze) != 21 or len(maze[0]) != 21:
+        raise ValueError("迷宫数组的大小应为21x21。")
+    if len(data_array) != 100:
+        raise ValueError("数据数组的大小应为1x100。")
+
+    # 遍历迷宫数组的横纵坐标都为奇数的点
+    for i in range(1, 20, 2):
+        for j in range(1, 20, 2):
+            # 计算该点在data_array中的索引
+            index = (i // 2) * 10 + (j // 2)
+            # 获取对应点的上下左右数值
+            up, down, left, right = data_array[index]
+
+            # 填充迷宫数组中的四个方向
+            if up:
+                maze[i-1][j] = up
+            if down:
+                maze[i+1][j] = down
+            if left:
+                maze[i][j-1] = left
+            if right:
+                maze[i][j+1] = right
+    maze=np.array(maze)
+
+    return maze
+
+
+
+
+def draw_lines_on_image(array_2d, original_image, grid_size):
+    # 获取图像的高度和宽度
+    image_height, image_width, _ = original_image.shape
+
+    # 计算格子的宽度和高度
+    cell_height = image_height // grid_size[0]
+    cell_width = image_width // grid_size[1]
+
+    # 创建一个全白的图像，用于绘制黑色线条
+    image = np.ones((image_height, image_width), dtype=np.uint8) * 255
+
+    # 定义线条颜色为黑色
+    line_color = (0, 0, 0)
+
+    # 遍历每个格子
+    for i in range(grid_size[0]):
+        for j in range(grid_size[1]):
+            # 获取当前格子对应的1x4数组
+            array_1x4 = array_2d[i * grid_size[1] + j]
+
+            # 根据1x4数组的值来绘制黑线
+            if array_1x4[0] == 1:
+                cv2.line(original_image, (j * cell_width, i * cell_height), ((j + 1) * cell_width, i * cell_height), line_color, 1)
+            if array_1x4[1] == 1:
+                cv2.line(original_image, (j * cell_width, (i + 1) * cell_height), ((j + 1) * cell_width, (i + 1) * cell_height), line_color, 1)
+            if array_1x4[2] == 1:
+                cv2.line(original_image, (j * cell_width, i * cell_height), (j * cell_width, (i + 1) * cell_height), line_color, 1)
+            if array_1x4[3] == 1:
+                cv2.line(original_image, ((j + 1) * cell_width, i * cell_height), ((j + 1) * cell_width, (i + 1) * cell_height), line_color, 1)
+
+    return original_image
+
+
+
+
+
+
+
+
+
+
+def detect_circle_region(image_path):
+    # 读取迷宫图像
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+    circles = cv2.HoughCircles(img, cv2.HOUGH_GRADIENT, dp=1, minDist=22, param1=20, param2=14, minRadius=10,
+                            maxRadius=50)
+
+    if circles is not None:
+        # 将圆心坐标和半径转换为整数
+        circles = np.round(circles[0, :]).astype(int)
+
+        # 初始化结果列表，用于存储包含黑色实心圆圈的区域的映射坐标
+        regions_with_circle = []
+
+        # 遍历每个检测到的圆
+        for (x, y, r) in circles:
+            # 计算当前圆所在的区域的映射坐标
+            row = int(y / (img.shape[0] / 10))
+            col = int(x / (img.shape[1] / 10))
+
+            # 将当前区域的映射坐标加入结果列表
+            regions_with_circle.append((row, col))
+
+        return regions_with_circle
+
+    else:
+        # 没有检测到黑色实心圆，返回空列表
+        return []
+
+def convert_to_2n_plus_1(coordinates):
+    # 定义一个空列表用于存储转换后的坐标
+    converted_coordinates = []
+
+    # 遍历原始坐标列表
+    for coord in coordinates:
+        # 对每个坐标进行转换，分别乘以2并加1
+        converted_x = 2 * coord[0] + 1
+        converted_y = 2 * coord[1] + 1
+
+        # 将转换后的坐标添加到结果列表中
+        converted_coordinates.append((converted_x, converted_y))
+
+    return converted_coordinates
+
+
+
+
+
+
+
+
+
+
+
+
+
+def draw_lines_on_image(array_2d, grid_size, cell_height, cell_width):
+    # 创建一个全白的图像，用于绘制黑色线条
+    image_height = cell_height * grid_size[0]
+    image_width = cell_width * grid_size[1]
+    image = np.ones((image_height, image_width), dtype=np.uint8) * 255
+
+    # 定义线条颜色为黑色
+    line_color = (0, 0, 0)
+
+    # 遍历每个格子
+    for i in range(grid_size[0]):
+        for j in range(grid_size[1]):
+            # 获取当前格子对应的1x4数组
+            array_1x4 = array_2d[i * grid_size[1] + j]
+
+            # 根据1x4数组的值来绘制黑线
+            if array_1x4[0] == 1:
+                cv2.line(image, (j * cell_width, i * cell_height), ((j + 1) * cell_width, i * cell_height), line_color, 1)
+            if array_1x4[1] == 1:
+                cv2.line(image, (j * cell_width, (i + 1) * cell_height), ((j + 1) * cell_width, (i + 1) * cell_height), line_color, 1)
+            if array_1x4[2] == 1:
+                cv2.line(image, (j * cell_width, i * cell_height), (j * cell_width, (i + 1) * cell_height), line_color, 1)
+            if array_1x4[3] == 1:
+                cv2.line(image, ((j + 1) * cell_width, i * cell_height), ((j + 1) * cell_width, (i + 1) * cell_height), line_color, 1)
+
+    return image
+
+def set_even_coordinates_to_one(array):
+    if len(array) != 21 or len(array[0]) != 21:
+        raise ValueError("输入数组的大小应为21x21。")
+
+    # 遍历数组的横纵坐标都为偶数的点
+    for i in range(0, 21, 2):
+        for j in range(0, 21, 2):
+            array[i][j] = 1
+
+    return array
+
+
+
+
+def remove_duplicates(circle_regions):
+    # 创建一个空列表来存储没有重复元素的结果
+    unique_regions = []
+
+    # 遍历每个圆形区域
+    for circle in circle_regions:
+        # 检查当前圆形是否已经在结果列表中
+        if circle not in unique_regions:
+            # 如果不在，就将当前圆形添加到结果列表中
+            unique_regions.append(circle)
+
+    return unique_regions
+
+
+
+
+
+
+import math
+import heapq
+
+def heuristic(p1, p2):
+    # 曼哈顿距离作为启发式函数
+    return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
+
+def a_star_search(start, end, maze):
+    # 初始化open和closed列表
+    open_list = []
+    closed_set = set()
+    came_from = {}
+
+    # 使用优先队列来优化open列表的查找效率
+    heapq.heappush(open_list, (0, start))
+    came_from[start] = None
+
+    while open_list:
+        # 从open列表中获取f值最小的点
+        current_f, current = heapq.heappop(open_list)
+
+        # 判断是否到达目标点
+        if current == end:
+            # 重构路径
+            path = []
+            while current in came_from:
+                path.append(current)
+                current = came_from[current]
+            path.reverse()
+            return path
+
+        # 将当前点加入closed列表
+        closed_set.add(current)
+
+        # 获取当前点的相邻点
+        neighbors = get_neighbors(current, maze)
+
+        for neighbor in neighbors:
+            if neighbor not in closed_set:
+                # 计算g值
+                g = current_f + 1
+
+                # 如果邻居点不在open列表中，则将其加入open列表
+                if neighbor not in [item[1] for item in open_list]:
+                    h = heuristic(neighbor, end)
+                    f = g + h
+                    heapq.heappush(open_list, (f, neighbor))
+                    came_from[neighbor] = current
+                elif g < current_f:
+                    # 选择更短的路径更新邻居点的父节点
+                    f = g + heuristic(neighbor, end)
+                    index = [item[1] for item in open_list].index(neighbor)
+                    open_list[index] = (f, neighbor)
+                    came_from[neighbor] = current
+
+    # 如果open列表为空且没有找到目标点，则返回空路径
+    return []
+
+def get_neighbors(point, maze):
+    # 获取当前点的相邻点
+    x, y = point
+    neighbors = []
+    if x > 0 and not maze[x - 1][y]:  # 左
+        neighbors.append((x - 1, y))
+    if x < len(maze) - 1 and not maze[x + 1][y]:  # 右
+        neighbors.append((x + 1, y))
+    if y > 0 and not maze[x][y - 1]:  # 上
+        neighbors.append((x, y - 1))
+    if y < len(maze[0]) - 1 and not maze[x][y + 1]:  # 下
+        neighbors.append((x, y + 1))
+    return neighbors
+
+
+
+def explore_maze():
+    # 生成一个3到20之间的随机整数作为N
+    N = random.randint(3, 20)
+
+    # 构建图片文件路径
+    image_path = f"maze_cherish{N}.png"
+
+
+
+
+
+
+
+
+
+    # 步骤1：加载原始图像并进行灰度处理和高斯滤波
+    image = cv2.imread(image_path)#******************************原始图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # 步骤2：二值化处理，提取轮廓
+    _, binary_image = cv2.threshold(blurred, 100, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(binary_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    cv2.imwrite("binary_image.png",binary_image)
+
+
+
+    Original_Image= cv2.imread("binary_image.png")
+    # 设置图像的宽高
+    height, width = Original_Image.shape[:2]
+
+    # 步骤3：识别四角定位点轮廓
+    calibration_points = find_calibration_points(contours)
+
+    calibration_points = find_corners(calibration_points)
+
+    # 执行透视校正
+    corrected_image = perspective_correction(Original_Image, calibration_points)
+
+
+
+
+    # 保存校正后的图像
+    cv2.imwrite("corrected_image.jpg", corrected_image)
+
+    extract_maze("corrected_image.jpg")
+
+
+    add_black_border("cropped.jpg", border_size=20, black_width=10)
+
+    # 调用函数并打印结果
+    raw_array = create_array()
+
+    # 示例用法：
+    result_array = detect_black_lines("auto.png")
+    array_2d =[[1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],[1, 1, 1, 1], [1, 1, 1, 1],
+     [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],[1, 1, 1, 1], [1, 1, 1, 1],
+     [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],[1, 1, 1, 1], [1, 1, 1, 1],
+     [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],[1, 1, 1, 1], [1, 1, 1, 1],
+     [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],[1, 1, 1, 1], [1, 1, 1, 1],
+     [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],[1, 1, 1, 1], [1, 1, 1, 1],
+     [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],[1, 1, 1, 1], [1, 1, 1, 1],
+     [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],[1, 1, 1, 1], [1, 1, 1, 1],
+     [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],[1, 1, 1, 1], [1, 1, 1, 1],
+     [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],[1, 1, 1, 1], [1, 1, 1, 1]]
+
+
+
+
+
+
+    # 调用函数并传入图像文件路径
+    image_path = "auto.png"
+    circle_regions = detect_circle_region(image_path)
+    circle_regions = convert_to_2n_plus_1(circle_regions)
+
+
+
+    cherish = circle_regions
+    cherish = remove_duplicates(cherish)
+    print("宝藏坐标：", cherish)
+    # 判断宝藏数量
+    if len(cherish) == 8:
+        pass
+    else:
+        raise ValueError("未找到八个宝藏")
+
+
+
+    # Example usage:
+    treasure_status = generate_treasure_status(cherish)
+
+    for treasure, is_true in treasure_status.items():
+        print(f"Treasure {treasure} is {is_true}")
+
+
+    treasures = treasure_status
+    print(treasures)
+
+
+
+    # 示例用法
+    maze = raw_array
+    data_array = result_array
+    matrix = fill_maze(maze, data_array)
+    matrix=set_even_coordinates_to_one(matrix)
+
+
+    # 将结果写入 txt 文件
+    np.savetxt('maze.txt', matrix, fmt='%s')
+
+    maze = matrix
+    # 迷宫大小为21x21
+    maze_size = 21
+
+
+
+
+    # 起点和终点
+    start_point = (1, 1)
+    end_point = (19, 19)
+
+    # 初始位置为起点
+    current_point = start_point
+
+    # 记录已经探索过的宝藏点
+    explored_treasures = set()
+
+    # ... (rest of the code remains the same)
+
+    # 寻找三个真宝藏点
+    found_true_treasures = 0
+    explored_paths = []
+    total_length = 0
+    num = 0
+    while found_true_treasures < 3:
+        # 获取当前点到其他宝藏点的路径长度
+        shortest_path_length = float('inf')
+        next_treasure = None
+        for treasure_point, is_true_treasure in treasures.items():
+            if treasure_point not in explored_treasures:
+                path = a_star_search(current_point, treasure_point, maze)
+                path_length = len(path)
+                if path_length < shortest_path_length:
+                    shortest_path_length = path_length
+                    next_treasure = treasure_point
+
+        if next_treasure:
+            if current_point == start_point:
+                # 从起点到第一个宝藏点的路径
+                start_to_first_treasure_path = a_star_search(current_point, next_treasure, maze)
+                total_length += len(start_to_first_treasure_path)
+                explored_paths.append(start_to_first_treasure_path)
+            else:
+                # 更新当前点为下一个探索目标
+                path = a_star_search(current_point, next_treasure, maze)  # Update the path
+                path_length = len(path)  # Update the path length
+                explored_paths.append(path)  # Add the updated path to the list
+                total_length += path_length  # Update the total length
+
+            explored_treasures.add(next_treasure)
+            if treasures[next_treasure]:
+                found_true_treasures += 1
+            print("探索宝藏点:", next_treasure)
+            num+=1
+
+
+            current_point = next_treasure  # Move to the next treasure
+
+    # 从最后一个宝藏点到终点的路径
+    last_treasure_to_end_path = a_star_search(current_point, end_point, maze)
+    explored_paths.append(last_treasure_to_end_path)
+    total_length += len(last_treasure_to_end_path)
+
+    # 打印所有探索过的路径
+    print("所有探索过的路径:")
+    for idx, path in enumerate(explored_paths, 1):
+        print(f"路径 {idx}:", path)
+    print("探索的宝藏数: ",num)
+    # 打印总长度
+    print("所有探索路径的总长度:", total_length)
+    # 返回本次运行的总长度和探索宝藏数
+    return total_length, num
+# 设置中文字体
+font = FontProperties(fname=r"C:\Windows\Fonts\simsun.ttc", size=12)
+# 定义运行次数
+num_runs = 10000
+
+# 列表存储结果
+total_lengths = []
+explored_treasures_counts = []
+
+# 运行1000次探索
+for run in range(num_runs):
+    total_length, num = explore_maze()
+    total_lengths.append(total_length)
+    explored_treasures_counts.append(num)
+
+# 绘制柱状图：每次探索的总长度
+plt.figure(figsize=(10, 6))
+plt.bar(range(num_runs), total_lengths, color='skyblue')
+plt.xlabel('探索次数', fontproperties=font)  # 使用中文字体
+plt.ylabel('总长度', fontproperties=font)  # 使用中文字体
+plt.title('1000次迷宫探索总长度柱状图', fontproperties=font)  # 使用中文字体
+plt.show()
+
+# 绘制饼状图：探索宝藏数统计
+treasures_count_dict = {4: 0, 5: 0, 6: 0, 7: 0, 8: 0}
+for count in explored_treasures_counts:
+    if count in treasures_count_dict:
+        treasures_count_dict[count] += 1
+
+labels = list(treasures_count_dict.keys())
+counts = list(treasures_count_dict.values())
+
+plt.figure(figsize=(8, 8))
+plt.pie(counts, labels=labels, autopct='%1.1f%%', startangle=90, colors=['skyblue', 'lightgreen', 'lightcoral', 'gold', 'lightpink'])
+plt.title('100次探索宝藏数饼状图', fontproperties=font)  # 使用中文字体
+plt.axis('equal')
+plt.show()
+# 计算平均总长度和平均探索次数
+average_total_length = sum(total_lengths) / num_runs
+average_explored_treasures_count = sum(explored_treasures_counts) / num_runs
+
+print("平均总长度:", average_total_length)
+print("平均探索次数:", average_explored_treasures_count)
