@@ -1,0 +1,824 @@
+import itertools
+import time
+import serial.tools.list_ports
+import matplotlib.pyplot as plt
+import math
+# 定义 A* 算法和启发函数
+import heapq
+
+start_time = time.time()
+import serial
+from PIL import Image
+import cv2
+import numpy as np
+import struct
+import os
+
+
+def get_color(image_path):
+    image = cv2.imread(image_path)
+    height, width, _ = image.shape
+
+    # 获取左上角和右下角方块的位置
+    left_top_box = (0, 0, width // 2, height // 2)
+    right_bottom_box = (width // 2, height // 2, width, height)
+
+    # 获取左上角和右下角方块的颜色
+    left_top_color = get_color_type(image, *left_top_box)
+    right_bottom_color = get_color_type(image, *right_bottom_box)
+
+    if left_top_color == "Blue" or right_bottom_color == "Red":
+        return "0x01"  # 蓝方
+    else:
+        left_top_color == "Red" or right_bottom_color == "Blue"
+        return "0x10"  # 红方
+
+
+def get_color_type(image, x1, y1, x2, y2):
+    region = image[y1:y2, x1:x2]
+
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+
+    lower_blue = np.array([100, 50, 50])
+    upper_blue = np.array([130, 255, 255])
+    mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
+    blue_pixels = cv2.countNonZero(mask_blue)
+
+    lower_red = np.array([156, 50, 50])
+    upper_red = np.array([180, 255, 255])
+    mask_red = cv2.inRange(hsv, lower_red, upper_red)
+    red_pixels = cv2.countNonZero(mask_red)
+
+    total_pixels = (x2 - x1) * (y2 - y1)
+    blue_ratio = blue_pixels / total_pixels
+    red_ratio = red_pixels / total_pixels
+
+    if blue_ratio > 0.005:  # 蓝色块阈值
+        return "Blue"
+    elif red_ratio > 0.005:  # 红色块阈值
+        return "Red"
+    else:
+        return "Unknown"
+
+
+# 步骤3：识别四角定位点轮廓
+def find_calibration_points(contours):
+    calibration_points = []
+    for contour in contours:
+        epsilon = 0.15 * cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, epsilon, True)
+
+        # 判断是否为方形
+        if len(approx) == 4:
+            # 计算轮廓的中心点坐标
+            M = cv2.moments(approx)
+            cX = int(M["m10"] / M["m00"])
+            cY = int(M["m01"] / M["m00"])
+
+            # 去除重复的坐标点
+            if (cX, cY) not in calibration_points:
+                calibration_points.append((cX, cY))
+
+    return calibration_points
+
+
+def find_corners(coordinates):
+    if not coordinates:
+        return None, None, None, None
+
+    min_x, min_y = coordinates[0]
+    max_x, max_y = coordinates[0]
+
+    for x, y in coordinates:
+        min_x = min(min_x, x)
+        min_y = min(min_y, y)
+        max_x = max(max_x, x)
+        max_y = max(max_y, y)
+
+    top_left = (min_x, min_y)
+    top_right = (max_x, min_y)
+    bottom_right = (max_x, max_y)
+    bottom_left = (min_x, max_y)
+
+    return [top_left, top_right, bottom_right, bottom_left]
+
+
+
+import cv2
+import numpy as np
+
+
+def extract_maze(image_path, text):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 应用Canny边缘检测
+    edges = cv2.Canny(image, 50, 150)
+
+    # 膨胀操作，填充边缘间隙
+    kernel = np.ones((3, 3), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
+
+    # 查找轮廓
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 创建一个空白图像，与原始图像大小和通道数相同
+    contour_image = np.zeros_like(image)
+
+    # 在空白图像上绘制轮廓线
+    cv2.drawContours(contour_image, contours, -1, (0, 255, 0), 2)
+
+    # 合并所有轮廓点
+    all_contour_points = np.vstack(contours)
+
+    # 计算合并后的所有轮廓的最小外接矩形
+    rect = cv2.minAreaRect(all_contour_points)
+    box = cv2.boxPoints(rect)
+    box = np.int0(box)
+
+    # 排除四个顶点附近的轮廓
+    filtered_contours = []
+    for contour in contours:
+        # 计算轮廓的中心
+        M = cv2.moments(contour)
+        cX = int(M["m10"] / M["m00"])
+        cY = int(M["m01"] / M["m00"])
+
+        # 排除在最小外接矩形四个顶点附近的轮廓
+        if not any(np.linalg.norm(np.array([cX, cY]) - point) < 300 for point in box):
+            filtered_contours.append(contour)
+
+    # 合并所有轮廓点
+    all_contour_points = np.vstack(filtered_contours)
+
+    # 计算合并后的所有轮廓的最小外接矩形
+    rect = cv2.minAreaRect(all_contour_points)
+    box = cv2.boxPoints(rect)
+    box = np.int0(box)
+    print(box)
+    # 在原始图像上绘制最小外接矩形
+    image_with_rect = image.copy()
+    cv2.drawContours(image_with_rect, [box], 0, (0, 255, 0), 2)
+
+    x = box[1][0]
+    y = box[2][1]
+    w = box[3][0] - x
+    h = box[0][1] - box[2][1] - 10
+
+    # 将坐标转换为整数
+    x, y, w, h = int(x), int(y), int(w), int(h)
+
+    img = image[y:y + h, x:x + w]
+    shape = img.shape
+    max_dimension = max(shape)
+    resized_img = cv2.resize(img, (max_dimension, max_dimension))
+    cv2.imwrite("cropped.jpg", resized_img)
+    cv2.imshow('Cropped Image', resized_img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+
+
+def perspective_correction(image, points):
+    if len(points) != 4:
+        raise ValueError("输入的定位点应包含四个点。")
+
+    # 找到左上角点，即x和y都最小的点
+    left_top_point = min(points, key=lambda point: (point[0], point[1]))
+
+    # 将左上角点从原列表中移除
+    points.remove(left_top_point)
+
+    # 对剩余的三个点按照极坐标排序，即相对于左上角点的角度和距离
+    sorted_points = sorted(points,
+                           key=lambda point: (-np.arctan2(point[1] - left_top_point[1], point[0] - left_top_point[0]),
+                                              np.sqrt((point[0] - left_top_point[0]) ** 2 + (
+                                                          point[1] - left_top_point[1]) ** 2)))
+
+    # 将左上角点插入到排序后的列表首位，得到按照顺时针顺序排序的四个点
+    sorted_points.insert(0, left_top_point)
+
+    points = sorted_points
+
+    # 定义透视变换的目标点，即新的图像顶点
+    dst_points = np.array([(0, 0), (0, image.shape[0]), (image.shape[1], image.shape[0]), (image.shape[1], 0)],
+                          dtype="float32")
+
+    # 计算透视变换矩阵
+    perspective_matrix = cv2.getPerspectiveTransform(np.array(points, dtype="float32"), dst_points)
+
+    # 进行透视变换校正
+    corrected_image = cv2.warpPerspective(image, perspective_matrix, (image.shape[1], image.shape[0]))
+
+    return corrected_image
+
+
+def add_black_border(image_path, border_size, black_width):
+    # 读取图像
+    img = cv2.imread(image_path)
+
+    # 获取图像尺寸
+    height, width = img.shape[:2]
+
+    # 在原图像上绘制黑色矩形以创建黑色边框
+    cv2.rectangle(img, (0, 0), (width - 1, height - 1), (0, 0, 0), black_width)
+
+
+
+    # 等待键盘输入，单位为毫秒（0表示无限期等待，直到按下任意键）
+    cv2.waitKey(0)
+
+    # 关闭图像窗口
+    cv2.destroyAllWindows()
+
+    # 保存结果
+    cv2.imwrite('auto.png', img)
+    cv2.imwrite('final.png', img)
+
+
+# 指定文件夹路径
+folder_path = r"C:\Users\12233\Pictures"
+
+# 初始化 image 变量（设置为 None）
+image = None
+
+# 遍历文件夹中的图片文件，并记录它们的修改时间
+image_info = []
+for filename in os.listdir(folder_path):
+    file_path = os.path.join(folder_path, filename)
+    try:
+        image = Image.open(file_path)
+        image_info.append((file_path, os.path.getmtime(file_path)))
+    except Exception as e:
+
+        pass
+
+
+
+# 找到最新的图片
+if image_info:
+    image_path, latest_timestamp = max(image_info, key=lambda x: x[1])
+    print("最新的图片路径：", image_path)
+
+    # 打开图像文件
+    image = Image.open(image_path)
+print(image_path)
+hex_string = get_color(image_path)
+# 新的分辨率
+new_width = 1280
+new_height = 960
+
+# 调整分辨率
+resized_image = image.resize((new_width, new_height))
+
+# 保存修改后的图像
+resized_image.save(image_path)
+
+color=get_color(image_path)
+
+# 步骤1：加载原始图像并进行灰度处理和高斯滤波
+image = cv2.imread(image_path)  # ******************************原始图像
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+# 步骤2：二值化处理，提取轮廓
+_, binary_image = cv2.threshold(blurred, 140, 255, cv2.THRESH_BINARY)
+contours, _ = cv2.findContours(binary_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+cv2.imwrite("binary_image.png", binary_image)
+
+
+Original_Image = cv2.imread("binary_image.png")
+# 设置图像的宽高
+height, width = Original_Image.shape[:2]
+
+# 步骤3：识别四角定位点轮廓
+calibration_points = find_calibration_points(contours)
+
+calibration_points = find_corners(calibration_points)
+
+# 执行透视校正
+corrected_image = perspective_correction(Original_Image, calibration_points)
+
+
+
+
+
+# 等待按下任意按键，关闭显示窗口
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+# 保存校正后的图像
+cv2.imwrite("corrected_image.jpg", corrected_image)
+cv2.imwrite('final.png', corrected_image)
+extract_maze("corrected_image.jpg",hex_string)
+
+add_black_border("cropped.jpg", border_size=20, black_width=10)
+
+
+def detect_black_lines(image_path):
+    # 读取图像
+    image = cv2.imread(image_path)
+
+    # 将图像转换为灰度图
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 将图像进行二值化处理，将黑色边缘转为白色，方便进行形态学操作
+    _, binary_image = cv2.threshold(gray_image, 30, 255, cv2.THRESH_BINARY_INV)
+
+    # 定义一个矩形核，用于进行形态学膨胀操作
+    kernel = np.ones((10, 10), np.uint8)
+
+    # 进行形态学膨胀操作，填充黑线区域
+    dilated_image = cv2.dilate(binary_image, kernel, iterations=1)
+    cv2.imwrite('final.png', dilated_image)
+
+
+    # 将图像分为10x10的区域
+    rows, cols = 10, 10
+    region_height, region_width = dilated_image.shape[0] // rows, dilated_image.shape[1] // cols
+
+    # 定义用于黑线判断的阈值
+    threshold = region_height * region_width * 2  # 根据需要调整阈值*****    1.8-6.5为临界值
+
+    # 存储结果的列表
+
+    results = []
+
+    # 遍历每个区域
+    for i in range(rows):
+        for j in range(cols):
+            # 获取当前区域的坐标范围（扩展非边界格子的检测范围）
+            y_start, y_end = max(0, i * region_height + 8), min((i + 1) * region_height + 10, dilated_image.shape[0])
+            x_start, x_end = max(0, j * region_width + 8), min((j + 1) * region_width + 10, dilated_image.shape[1])
+            # 提取当前区域
+            region = dilated_image[y_start:y_end, x_start:x_end]
+
+            # 计算当前区域沿行和列的直方图
+            row_histogram = np.sum(region, axis=1)  # 沿行求和
+            col_histogram = np.sum(region, axis=0)  # 沿列求和
+
+            # 判断上下左右是否存在黑线
+            top_line = 1 if np.max(row_histogram[:5]) >= threshold else 0
+            bottom_line = 1 if np.max(row_histogram[-5:]) >= threshold else 0
+            left_line = 1 if np.max(col_histogram[:5]) >= threshold else 0
+            right_line = 1 if np.max(col_histogram[-5:]) >= threshold else 0
+
+            # 对最外层格子进行处理，置为1
+            if i == 0:
+                top_line = 1
+            if i == rows - 1:
+                bottom_line = 1
+            if j == 0:
+                left_line = 1
+            if j == cols - 1:
+                right_line = 1
+
+            # 添加结果到列表中
+            results.append([top_line, bottom_line, left_line, right_line])
+
+    return results
+
+
+def create_array():
+    size = 21
+    array = [[0] * size for _ in range(size)]
+
+    # Fill the outermost layer with 1
+    for i in range(size):
+        array[0][i] = 1
+        array[size - 1][i] = 1
+        array[i][0] = 1
+        array[i][size - 1] = 1
+
+    return array
+
+
+# 调用函数并打印结果
+raw_array = create_array()
+
+
+def fill_maze(maze, data_array):
+    # 首先，检查输入数组是否合法
+    if len(maze) != 21 or len(maze[0]) != 21:
+        raise ValueError("迷宫数组的大小应为21x21。")
+    if len(data_array) != 100:
+        raise ValueError("数据数组的大小应为1x100。")
+
+    # 遍历迷宫数组的横纵坐标都为奇数的点
+    for i in range(1, 20, 2):
+        for j in range(1, 20, 2):
+            # 计算该点在data_array中的索引
+            index = (i // 2) * 10 + (j // 2)
+            # 获取对应点的上下左右数值
+            up, down, left, right = data_array[index]
+
+            # 填充迷宫数组中的四个方向
+            if up:
+                maze[i - 1][j] = up
+            if down:
+                maze[i + 1][j] = down
+            if left:
+                maze[i][j - 1] = left
+            if right:
+                maze[i][j + 1] = right
+    maze = np.array(maze)
+
+    return maze
+
+
+# 示例用法：
+result_array = detect_black_lines("auto.png")
+
+
+def draw_lines_on_image(array_2d, original_image, grid_size):
+    # 获取图像的高度和宽度
+    image_height, image_width, _ = original_image.shape
+
+    # 计算格子的宽度和高度
+    cell_height = image_height // grid_size[0]
+    cell_width = image_width // grid_size[1]
+
+    # 创建一个全白的图像，用于绘制黑色线条
+    image = np.ones((image_height, image_width), dtype=np.uint8) * 255
+
+    # 定义线条颜色为黑色
+    line_color = (0, 0, 0)
+
+    # 遍历每个格子
+    for i in range(grid_size[0]):
+        for j in range(grid_size[1]):
+            # 获取当前格子对应的1x4数组
+            array_1x4 = array_2d[i * grid_size[1] + j]
+
+            # 根据1x4数组的值来绘制黑线
+            if array_1x4[0] == 1:
+                cv2.line(original_image, (j * cell_width, i * cell_height), ((j + 1) * cell_width, i * cell_height),
+                         line_color, 1)
+            if array_1x4[1] == 1:
+                cv2.line(original_image, (j * cell_width, (i + 1) * cell_height),
+                         ((j + 1) * cell_width, (i + 1) * cell_height), line_color, 1)
+            if array_1x4[2] == 1:
+                cv2.line(original_image, (j * cell_width, i * cell_height), (j * cell_width, (i + 1) * cell_height),
+                         line_color, 1)
+            if array_1x4[3] == 1:
+                cv2.line(original_image, ((j + 1) * cell_width, i * cell_height),
+                         ((j + 1) * cell_width, (i + 1) * cell_height), line_color, 1)
+
+    return original_image
+
+
+array_2d = [[1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1],
+            [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1]]
+
+# 示例用法：
+grid_size = (10, 10)  # 格子的行数和列数
+
+# 假设您已经通过其他方式加载了一张图像，我用下面这行来演示
+original_image = cv2.imread("auto.png")
+
+result_image = draw_lines_on_image(np.array(array_2d), original_image, grid_size)
+cv2.imshow("Lines on Image", result_image)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+
+def detect_circle_region(image_path):
+    # 读取迷宫图像
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+    circles = cv2.HoughCircles(img, cv2.HOUGH_GRADIENT, dp=1, minDist=22, param1=20, param2=14, minRadius=20,
+                               maxRadius=40)
+
+    if circles is not None:
+        # 将圆心坐标和半径转换为整数
+        circles = np.round(circles[0, :]).astype(int)
+
+        # 初始化结果列表，用于存储包含黑色实心圆圈的区域的映射坐标
+        regions_with_circle = []
+
+        # 遍历每个检测到的圆
+        for (x, y, r) in circles:
+            # 计算当前圆所在的区域的映射坐标
+            row = int(y / (img.shape[0] / 10))
+            col = int(x / (img.shape[1] / 10))
+
+            # 将当前区域的映射坐标加入结果列表
+            regions_with_circle.append((row, col))
+
+        return regions_with_circle
+
+    else:
+        # 没有检测到黑色实心圆，返回空列表
+        return []
+
+
+def convert_to_2n_plus_1(coordinates):
+    # 定义一个空列表用于存储转换后的坐标
+    converted_coordinates = []
+
+    # 遍历原始坐标列表
+    for coord in coordinates:
+        # 对每个坐标进行转换，分别乘以2并加1
+        converted_x = 2 * coord[0] + 1
+        converted_y = 2 * coord[1] + 1
+
+        # 将转换后的坐标添加到结果列表中
+        converted_coordinates.append((converted_x, converted_y))
+
+    return converted_coordinates
+
+
+def draw_lines_on_image(array_2d, grid_size, cell_height, cell_width):
+    # 创建一个全白的图像，用于绘制黑色线条
+    image_height = cell_height * grid_size[0]
+    image_width = cell_width * grid_size[1]
+    image = np.ones((image_height, image_width), dtype=np.uint8) * 255
+
+    # 定义线条颜色为黑色
+    line_color = (0, 0, 0)
+
+    # 遍历每个格子
+    for i in range(grid_size[0]):
+        for j in range(grid_size[1]):
+            # 获取当前格子对应的1x4数组
+            array_1x4 = array_2d[i * grid_size[1] + j]
+
+            # 根据1x4数组的值来绘制黑线
+            if array_1x4[0] == 1:
+                cv2.line(image, (j * cell_width, i * cell_height), ((j + 1) * cell_width, i * cell_height), line_color,
+                         1)
+            if array_1x4[1] == 1:
+                cv2.line(image, (j * cell_width, (i + 1) * cell_height), ((j + 1) * cell_width, (i + 1) * cell_height),
+                         line_color, 1)
+            if array_1x4[2] == 1:
+                cv2.line(image, (j * cell_width, i * cell_height), (j * cell_width, (i + 1) * cell_height), line_color,
+                         1)
+            if array_1x4[3] == 1:
+                cv2.line(image, ((j + 1) * cell_width, i * cell_height), ((j + 1) * cell_width, (i + 1) * cell_height),
+                         line_color, 1)
+
+    return image
+
+
+def set_even_coordinates_to_one(array):
+    if len(array) != 21 or len(array[0]) != 21:
+        raise ValueError("输入数组的大小应为21x21。")
+
+    # 遍历数组的横纵坐标都为偶数的点
+    for i in range(0, 21, 2):
+        for j in range(0, 21, 2):
+            array[i][j] = 1
+
+    return array
+
+
+# 示例用法：
+grid_size = (10, 10)  # 格子的行数和列数
+cell_height = 50  # 格子的高度
+cell_width = 50  # 格子的宽度
+
+result_image = draw_lines_on_image(np.array(result_array), grid_size, cell_height, cell_width)
+
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+# 调用函数并传入图像文件路径
+image_path = "auto.png"
+circle_regions = detect_circle_region(image_path)
+circle_regions = convert_to_2n_plus_1(circle_regions)
+
+cherish = circle_regions
+Acherish = cherish
+
+
+def remove_duplicates(circle_regions):
+    # 创建一个空列表来存储没有重复元素的结果
+    unique_regions = []
+
+    # 遍历每个圆形区域
+    for circle in circle_regions:
+        # 检查当前圆形是否已经在结果列表中
+        if circle not in unique_regions:
+            # 如果不在，就将当前圆形添加到结果列表中
+            unique_regions.append(circle)
+
+    return unique_regions
+
+
+cherish = remove_duplicates(cherish)
+print("宝藏坐标：", cherish)
+# 判断宝藏数量
+if len(cherish) == 8:
+    pass
+else:
+    raise ValueError("未找到八个宝藏")
+
+Bcherish=cherish
+def check_symmetry(points):
+    symmetric_pairs = set()
+
+    for point in points:
+        x, y = point
+        symmetric_point = (20 - x, 20 - y)
+
+        if symmetric_point in symmetric_pairs:
+            symmetric_pairs.remove(symmetric_point)
+        else:
+            symmetric_pairs.add(point)
+
+    if len(symmetric_pairs) == 0:
+        print("每个点都有其对称的点，没有报错。")
+    else:
+        raise ValueError("不对称报错")
+
+
+try:
+    check_symmetry(cherish)
+except ValueError as e:
+    print(e)
+
+
+
+
+
+# 示例用法
+maze = raw_array
+data_array = result_array
+matrix = fill_maze(maze, data_array)
+matrix = set_even_coordinates_to_one(matrix)
+matrix = np.array([
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 6, 6, 6, 6, 6, 6, 6, 6, 6, 1, 6, 6, 6, 6, 6, 1, 6, 6, 6, 1],
+    [1, 6, 1, 6, 1, 1, 1, 6, 1, 6, 1, 6, 1, 1, 1, 6, 1, 6, 1, 1, 1],
+    [1, 6, 1, 6, 1, 6, 6, 6, 1, 6, 6, 6, 6, 6, 1, 6, 1, 6, 6, 6, 1],
+    [1, 6, 1, 1, 1, 6, 1, 1, 1, 6, 1, 1, 1, 6, 1, 6, 1, 1, 1, 6, 1],
+    [1, 6, 1, 6, 6, 6, 6, 6, 1, 6, 6, 6, 6, 6, 1, 1, 1, 6, 6, 6, 1],
+    [1, 1, 1, 6, 1, 6, 1, 6, 1, 1, 1, 1, 1, 6, 1, 1, 1, 6, 1, 1, 1],
+    [1, 6, 6, 6, 1, 6, 1, 6, 6, 6, 6, 6, 1, 6, 6, 6, 6, 1, 1, 1, 1],
+    [1, 6, 1, 1, 1, 6, 1, 6, 1, 1, 1, 1, 1, 1, 1, 6, 1, 1, 1, 6, 1],
+    [1, 6, 1, 1, 6, 6, 1, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 1],
+    [1, 6, 1, 1, 1, 1, 1, 6, 1, 1, 1, 1, 1, 6, 1, 1, 1, 1, 1, 6, 1],
+    [1, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 1, 6, 6, 1, 1, 6, 1],
+    [1, 6, 1, 1, 1, 6, 1, 1, 1, 1, 1, 1, 1, 6, 1, 6, 1, 1, 1, 6, 1],
+    [1, 1, 1, 6, 6, 6, 6, 6, 1, 6, 6, 6, 6, 6, 1, 6, 1, 6, 6, 6, 1],
+    [1, 1, 1, 6, 1, 1, 1, 6, 1, 1, 1, 1, 1, 6, 1, 6, 1, 6, 1, 1, 1],
+    [1, 6, 6, 6, 1, 1, 1, 6, 6, 6, 6, 6, 1, 6, 6, 6, 6, 1, 6, 1, 1],
+    [1, 6, 1, 1, 1, 6, 1, 6, 1, 1, 1, 6, 1, 1, 1, 6, 1, 1, 1, 6, 1],
+    [1, 6, 6, 6, 1, 6, 1, 6, 6, 6, 6, 6, 1, 6, 6, 6, 1, 1, 1, 6, 1],
+    [1, 1, 1, 6, 1, 6, 1, 1, 1, 6, 1, 6, 1, 6, 1, 1, 1, 6, 1, 6, 1],
+    [1, 6, 6, 6, 1, 6, 6, 6, 6, 1, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+])
+
+
+def rotate_matrix_90(matrix):
+    # 获取原始矩阵的行数和列数
+    rows = len(matrix)
+    cols = len(matrix[0])
+
+    # 创建一个新的矩阵来存储旋转后的结果
+    rotated_matrix = [[0] * rows for _ in range(cols)]
+
+    # 旋转矩阵
+    for i in range(rows):
+        for j in range(cols):
+            rotated_matrix[j][rows - i - 1] = matrix[i][j]
+
+    return rotated_matrix
+matrix = rotate_matrix_90(matrix)
+
+# 将结果写入 txt 文件
+np.savetxt('maze.txt', matrix, fmt='%s')
+
+# 创建空的整数数组
+int_array = []
+
+
+def connect_to_serial_port():
+    # 查找可用串口
+    available_ports = list(serial.tools.list_ports.comports())
+
+    for port in available_ports:
+        if port.vid == 0x04D8:  # 供应商ID为
+            ser = serial.Serial(port.device)
+            return ser
+
+    print("No matching serial port found")
+    return None
+
+
+# 连接到指定供应商ID的串口设备
+ser = connect_to_serial_port()
+
+if ser is not None:
+    print("Serial port connected:", ser.port)
+
+    # 设置串口参数
+    ser.baudrate = 115200
+    # 其他操作...
+
+# 将结果写入 txt 文件
+np.savetxt('maze.txt', matrix, fmt='%s')
+
+
+def rotate_array_90_degrees(array):
+    return np.rot90(array, k=1)
+
+
+matrix = rotate_array_90_degrees(matrix)
+
+# 将迷宫地图转换为字节串
+map_bytes = bytearray()
+for row in matrix:
+    for cell in row:
+        map_bytes.append(cell)
+
+# 1.发送迷宫地图数据
+
+
+# print(map_bytes)
+map = b'\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x06\x06\x06\x06\x06\x06\x06\x06\x06\x01\x06\x06\x06\x06\x06\x01\x06\x06\x06\x01\x01\x06\x01\x06\x01\x01\x01\x06\x01\x06\x01\x06\x01\x01\x01\x06\x01\x06\x01\x01\x01\x01\x06\x01\x06\x01\x06\x06\x06\x01\x06\x06\x06\x06\x06\x01\x06\x01\x06\x06\x06\x01\x01\x06\x01\x01\x01\x06\x01\x01\x01\x06\x01\x01\x01\x06\x01\x06\x01\x01\x01\x06\x01\x01\x06\x01\x06\x06\x06\x06\x06\x01\x06\x06\x06\x06\x06\x01\x06\x01\x06\x06\x06\x01\x01\x01\x01\x06\x01\x06\x01\x06\x01\x01\x01\x01\x01\x06\x01\x01\x01\x06\x01\x01\x01\x01\x06\x06\x06\x01\x06\x01\x06\x06\x06\x06\x06\x01\x06\x06\x06\x06\x06\x01\x06\x01\x01\x06\x01\x01\x01\x06\x01\x06\x01\x01\x01\x01\x01\x01\x01\x06\x01\x01\x01\x06\x01\x01\x06\x01\x06\x06\x06\x01\x06\x06\x06\x06\x06\x06\x06\x06\x06\x06\x06\x06\x06\x01\x01\x06\x01\x01\x01\x01\x01\x06\x01\x01\x01\x01\x01\x06\x01\x01\x01\x01\x01\x06\x01\x01\x06\x06\x06\x06\x06\x06\x06\x06\x06\x06\x06\x06\x06\x01\x06\x06\x06\x01\x06\x01\x01\x06\x01\x01\x01\x06\x01\x01\x01\x01\x01\x01\x01\x06\x01\x06\x01\x01\x01\x06\x01\x01\x06\x01\x06\x06\x06\x06\x06\x01\x06\x06\x06\x06\x06\x01\x06\x01\x06\x06\x06\x01\x01\x01\x01\x06\x01\x01\x01\x06\x01\x01\x01\x01\x01\x06\x01\x06\x01\x06\x01\x01\x01\x01\x06\x06\x06\x01\x06\x01\x06\x06\x06\x06\x06\x01\x06\x06\x06\x06\x06\x01\x06\x01\x01\x06\x01\x01\x01\x06\x01\x06\x01\x01\x01\x06\x01\x01\x01\x06\x01\x01\x01\x06\x01\x01\x06\x06\x06\x01\x06\x01\x06\x06\x06\x06\x06\x01\x06\x06\x06\x01\x06\x01\x06\x01\x01\x01\x01\x06\x01\x06\x01\x01\x01\x06\x01\x06\x01\x06\x01\x01\x01\x06\x01\x06\x01\x01\x06\x06\x06\x01\x06\x06\x06\x06\x06\x01\x06\x06\x06\x06\x06\x06\x06\x06\x06\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01'
+ser.write(map)
+
+# 2.发送宝藏点位坐标8个
+
+
+
+
+def rotate_coordinates_90_degrees(coordinates, array_shape):
+    rotated_coordinates = []
+    for x, y in coordinates:
+        new_x = x
+        new_y = array_shape[0] - y - 1
+        rotated_coordinates.append((new_x, new_y))
+    return rotated_coordinates
+
+
+# 原始数组的形状
+original_array_shape = (21, 21)  # 假设原始数组形状为 (20, 20)
+
+# 要去掉的固定坐标点列表
+fixed_coordinates_to_remove = [(1, 1), (19, 19)]
+
+# 去掉固定坐标点后的坐标列表
+Bcherish = [coord for coord in Bcherish if coord not in fixed_coordinates_to_remove]
+
+print(Bcherish)
+
+# 逆时针旋转后的坐标点列表
+Bcherish = rotate_coordinates_90_degrees(Bcherish, original_array_shape)
+
+print("逆时针旋转后的坐标点列表:", Bcherish)
+
+for x, y in Bcherish:
+    packed_data = struct.pack('bb', int((x + 1) / 2), int((y + 1) / 2))  # Assuming 'i' format for int, adjust as needed
+    ser.write(packed_data)
+
+    #print(packed_data)
+# 3.发送红蓝方判断信息
+
+
+hex_integer = eval(hex_string)
+color_bytes = bytes([hex_integer])
+ser.write(color_bytes)
+print(color_bytes)
+# 3.发送16进制数组路书
+# for hex_value in hex_array:
+#     # 将16进制字符串转换为字节数据
+#     byte_value = bytes.fromhex(hex_value)
+#
+#     # 发送字节数据到串口
+#     ser.write(byte_value)
+#
+#     # 将16进制字符串转换为整数并添加到整数数组
+#     int_value = int(hex_value, 16)
+#     int_array.append(int_value)
+
+
+# 4.将十六进制数值30转换为字节数据
+data = bytes([0x30])
+
+# 发送数据到串口
+ser.write(data)
+
+# 关闭串口
+ser.close()
