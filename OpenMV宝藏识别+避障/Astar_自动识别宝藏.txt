@@ -1,0 +1,426 @@
+1.版本1：因为宝藏大小可能会占两个黑色像素，该算法把两个都当成宝藏
+import cv2
+import numpy as np
+from PIL import Image
+import itertools
+import time
+
+import matplotlib.pyplot as plt
+
+# 定义 A* 算法和启发函数
+import heapq
+
+start_time = time.time()
+
+
+
+# 读取迷宫图像
+img = cv2.imread('image.png', cv2.IMREAD_GRAYSCALE)
+
+# 定义结构元素和迭代次数
+kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+iterations = 9
+
+# 形态学处理：膨胀、腐蚀
+dilated = cv2.dilate(img, kernel, iterations=iterations)
+eroded = cv2.erode(img, kernel, iterations=iterations)
+
+# 求差值并阈值处理
+diff = cv2.absdiff(dilated, eroded)
+_, thresholded = cv2.threshold(diff, 50, 255, cv2.THRESH_BINARY)
+
+# 显示处理后的图像
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+cv2.imwrite("processed.png", thresholded)
+
+
+
+
+
+# 加载图像
+img = Image.open('processed.png')
+
+# 将图像转换为黑白图像，并将其缩放到合适的大小
+img = img.convert('L').resize((441, 441))
+
+# 获取图像像素值
+pixels = np.asarray(img)
+
+# 将图像分割为 19*19 个小块
+blocks = np.split(pixels, 21)
+blocks = [np.split(block, 21, axis=1) for block in blocks]
+blocks = np.array(blocks)
+
+# 计算每个小块中白色像素的数量占总像素数的比例
+ratios = np.zeros((21, 21))
+for i in range(21):
+    for j in range(21):
+        white_pixels = np.sum(blocks[i, j] < 128)
+        ratios[i, j] = white_pixels / blocks[i, j].size
+
+# 将比例转换为 0 或 1
+matrix = (ratios < 0.5).astype(int)
+
+def find_coordinates(matrix):
+    result = []
+    for i in range(1, len(matrix) - 1):
+        for j in range(1, len(matrix[0]) - 1):
+            sums = [matrix[i-1][j-1] + matrix[i-1][j] + matrix[i][j-1] + matrix[i][j],
+                    matrix[i-1][j] + matrix[i-1][j+1] + matrix[i][j] + matrix[i][j+1],
+                    matrix[i][j-1] + matrix[i][j] + matrix[i+1][j-1] + matrix[i+1][j],
+                    matrix[i][j] + matrix[i][j+1] + matrix[i+1][j] + matrix[i+1][j+1]]
+            if sorted(sums) == [2, 3, 4, 4]:
+                result.append((i, j))
+    return result
+
+
+# 定义一个函数，实现对二维数组的处理
+def process_array(arr):
+    # 获取数组的长和宽
+    rows, cols = len(arr), len(arr[0])
+
+    # 定义一个列表，用于保存符合条件的坐标
+    coordinates = []
+
+    # 遍历数组中除了最外层边界的部分
+    for i in range(1, rows - 1):
+        for j in range(1, cols - 1):
+            # 如果当前元素为1，且上下左右的元素有3个为1，则记录该元素的坐标
+            sums = [arr[i - 1][j - 1] + arr[i - 1][j] + arr[i][j - 1] + arr[i][j],
+                    arr[i - 1][j] + arr[i - 1][j + 1] + arr[i][j] + arr[i][j + 1],
+                    arr[i][j - 1] + arr[i][j] + arr[i + 1][j - 1] + arr[i + 1][j],
+                    arr[i][j] + arr[i][j + 1] + arr[i + 1][j] + arr[i + 1][j + 1]]
+            if arr[i][j] == 1 and (sum([arr[i-1][j-1],arr[i-1][j], arr[i-1][j+1],  arr[i][j-1], arr[i][j+1],arr[i+1][j-1], arr[i+1][j],arr[i+1][j+1]]) ==7 or (sum([arr[i-1][j-1],arr[i-1][j], arr[i-1][j+1],  arr[i][j-1], arr[i][j+1],arr[i+1][j-1], arr[i+1][j],arr[i+1][j+1]]) ==6 and sorted(sums) == [2,3,4,4])) :
+                coordinates.append((i, j))
+                arr[i][j] = 0  # 将该元素置为0，避免重复检测
+
+    return coordinates
+
+cherish = process_array(matrix)
+
+print(cherish)
+
+
+# 将结果写入 txt 文件
+np.savetxt('maze.txt', matrix, fmt='%s')
+
+def heuristic(a, b):
+    # 曼哈顿距离
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def astar(array, start, end):
+    neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+    close_set = set()
+    came_from = {}
+    gscore = {start: 0}
+    fscore = {start: heuristic(start, end)}
+    oheap = []
+
+    heapq.heappush(oheap, (fscore[start], start))
+
+    while oheap:
+        current = heapq.heappop(oheap)[1]
+        if current == end:
+            data = []
+            while current in came_from:
+                data.append(current)
+                current = came_from[current]
+            return data
+        close_set.add(current)
+        for i, j in neighbors:
+            neighbor = current[0] + i, current[1] + j
+            tentative_g_score = gscore[current] + heuristic(current, neighbor)
+            if 0 <= neighbor[0] < array.shape[0]:
+                if 0 <= neighbor[1] < array.shape[1]:
+                    if array[neighbor[0]][neighbor[1]] == 1:
+                        continue
+                else:
+                    # 超出边界
+                    continue
+            else:
+                # 超出边界
+                continue
+
+            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, 0):
+                continue
+
+            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
+                came_from[neighbor] = current
+                gscore[neighbor] = tentative_g_score
+                fscore[neighbor] = tentative_g_score + heuristic(neighbor, end)
+                heapq.heappush(oheap, (fscore[neighbor], neighbor))
+
+    return []
+
+
+# 生成 20x20的迷宫
+maze = matrix
+
+# 获得所有排列结果
+permutations = itertools.permutations(cherish)
+
+def get_min_path(maze,start,end):
+    # 获取最短路径
+    path = astar(maze, start, end)
+    cost = len(path)
+    return cost
+
+def Visual_path(maze,start,end,i):
+    # 获取最短路径
+    path = astar(maze, start, end)
+    if not path:
+            print("无法到达终点！")
+    else:
+            if i == 5:
+                print('从第5个宝藏到终点的最短路径', path[::-1])
+            else:
+                print("到第",i+1,'个宝藏的最短路径', path[::-1])
+
+            # 绘制迷宫图
+            fig, ax = plt.subplots()
+            ax.imshow(1 - maze, cmap=plt.cm.binary)
+
+            # 绘制起点和终点
+            ax.scatter(start[1], start[0], marker="*", color="yellow", s=200)
+            ax.scatter(end[1], end[0], marker="*", color="red", s=200)
+
+            # 绘制最短路径
+            for pos in path:
+                ax.plot(pos[1], pos[0], marker="o", color="blue", markersize=10)
+            if i==5:
+                plt.show()
+
+cost_min = 1000
+cost_min_cherish = []
+
+for p in permutations:
+    cherish = list(p)
+    cherish.insert(0,(1,1))
+    cherish.append((19,19))
+    cost = 0
+    for j in range(len(cherish)-1):
+        cost += get_min_path(maze, cherish[j], cherish[j+1])
+    if cost_min > cost:
+        cost_min = cost
+        cost_min_cherish = cherish
+print('最短路径长度为', cost_min)
+
+for i in range(len(cost_min_cherish)-1):
+    Visual_path(maze,cost_min_cherish[i],cost_min_cherish[i+1],i)
+
+end_time = time.time()
+run_time = end_time - start_time
+print("程序运行时间为：{:.2f}秒".format(run_time))
+
+2.版本2：加了一个逻辑判断，但是有可能把墙当成宝藏（）
+import cv2
+import numpy as np
+from PIL import Image
+import itertools
+import time
+
+import matplotlib.pyplot as plt
+
+# 定义 A* 算法和启发函数
+import heapq
+
+start_time = time.time()
+
+
+
+# 读取迷宫图像
+img = cv2.imread('image.png', cv2.IMREAD_GRAYSCALE)
+
+# 定义结构元素和迭代次数
+kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+iterations = 9
+
+# 形态学处理：膨胀、腐蚀
+dilated = cv2.dilate(img, kernel, iterations=iterations)
+eroded = cv2.erode(img, kernel, iterations=iterations)
+
+# 求差值并阈值处理
+diff = cv2.absdiff(dilated, eroded)
+_, thresholded = cv2.threshold(diff, 50, 255, cv2.THRESH_BINARY)
+
+# 显示处理后的图像
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+cv2.imwrite("processed.png", thresholded)
+
+
+
+
+
+# 加载图像
+img = Image.open('processed.png')
+
+# 将图像转换为黑白图像，并将其缩放到合适的大小
+img = img.convert('L').resize((441, 441))
+
+# 获取图像像素值
+pixels = np.asarray(img)
+
+# 将图像分割为 19*19 个小块
+blocks = np.split(pixels, 21)
+blocks = [np.split(block, 21, axis=1) for block in blocks]
+blocks = np.array(blocks)
+
+# 计算每个小块中白色像素的数量占总像素数的比例
+ratios = np.zeros((21, 21))
+for i in range(21):
+    for j in range(21):
+        white_pixels = np.sum(blocks[i, j] < 128)
+        ratios[i, j] = white_pixels / blocks[i, j].size
+
+# 将比例转换为 0 或 1
+matrix = (ratios < 0.5).astype(int)
+
+
+# 定义一个函数，实现对二维数组的处理
+def process_array(arr):
+    # 获取数组的长和宽
+    rows, cols = len(arr), len(arr[0])
+
+    # 定义一个列表，用于保存符合条件的坐标
+    coordinates = []
+
+    # 遍历数组中除了最外层边界的部分
+    for i in range(1, rows - 1):
+        for j in range(1, cols - 1):
+            # 如果当前元素为1，且上下左右的元素有3个为1，则记录该元素的坐标
+            sums = [arr[i - 1][j - 1] + arr[i - 1][j] + arr[i][j - 1] + arr[i][j],
+                    arr[i - 1][j] + arr[i - 1][j + 1] + arr[i][j] + arr[i][j + 1],
+                    arr[i][j - 1] + arr[i][j] + arr[i + 1][j - 1] + arr[i + 1][j],
+                    arr[i][j] + arr[i][j + 1] + arr[i + 1][j] + arr[i + 1][j + 1]]
+            if arr[i][j] == 1 and (sum([arr[i-1][j-1],arr[i-1][j], arr[i-1][j+1],  arr[i][j-1], arr[i][j+1],arr[i+1][j-1], arr[i+1][j],arr[i+1][j+1]]) ==7 or (sum([arr[i-1][j-1],arr[i-1][j], arr[i-1][j+1],  arr[i][j-1], arr[i][j+1],arr[i+1][j-1], arr[i+1][j],arr[i+1][j+1]]) ==6 and sorted(sums) == [2,3,4,4])) :
+                coordinates.append((i, j))
+                arr[i][j] = 0  # 将该元素置为0，避免重复检测
+
+    return coordinates
+
+cherish = process_array(matrix)
+for i in range(len(cherish)-2):
+     off = abs(cherish[i][0]-cherish[i+1][0]) + abs(cherish[i][1]-cherish[i+1][1])
+     if off == 1:
+         cherish.pop(i)
+
+print(cherish)
+
+
+# 将结果写入 txt 文件
+np.savetxt('maze.txt', matrix, fmt='%s')
+
+def heuristic(a, b):
+    # 曼哈顿距离
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def astar(array, start, end):
+    neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+    close_set = set()
+    came_from = {}
+    gscore = {start: 0}
+    fscore = {start: heuristic(start, end)}
+    oheap = []
+
+    heapq.heappush(oheap, (fscore[start], start))
+
+    while oheap:
+        current = heapq.heappop(oheap)[1]
+        if current == end:
+            data = []
+            while current in came_from:
+                data.append(current)
+                current = came_from[current]
+            return data
+        close_set.add(current)
+        for i, j in neighbors:
+            neighbor = current[0] + i, current[1] + j
+            tentative_g_score = gscore[current] + heuristic(current, neighbor)
+            if 0 <= neighbor[0] < array.shape[0]:
+                if 0 <= neighbor[1] < array.shape[1]:
+                    if array[neighbor[0]][neighbor[1]] == 1:
+                        continue
+                else:
+                    # 超出边界
+                    continue
+            else:
+                # 超出边界
+                continue
+
+            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, 0):
+                continue
+
+            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
+                came_from[neighbor] = current
+                gscore[neighbor] = tentative_g_score
+                fscore[neighbor] = tentative_g_score + heuristic(neighbor, end)
+                heapq.heappush(oheap, (fscore[neighbor], neighbor))
+
+    return []
+
+
+# 生成 20x20的迷宫
+maze = matrix
+
+# 获得所有排列结果
+permutations = itertools.permutations(cherish)
+
+def get_min_path(maze,start,end):
+    # 获取最短路径
+    path = astar(maze, start, end)
+    cost = len(path)
+    return cost
+
+def Visual_path(maze,start,end,i):
+    # 获取最短路径
+    path = astar(maze, start, end)
+    if not path:
+            print("无法到达终点！")
+    else:
+            if i == 5:
+                print('从第5个宝藏到终点的最短路径', path[::-1])
+            else:
+                print("到第",i+1,'个宝藏的最短路径', path[::-1])
+
+            # 绘制迷宫图
+            fig, ax = plt.subplots()
+            ax.imshow(1 - maze, cmap=plt.cm.binary)
+
+            # 绘制起点和终点
+            ax.scatter(start[1], start[0], marker="*", color="yellow", s=200)
+            ax.scatter(end[1], end[0], marker="*", color="red", s=200)
+
+            # 绘制最短路径
+            for pos in path:
+                ax.plot(pos[1], pos[0], marker="o", color="blue", markersize=10)
+            if i==5:
+                plt.show()
+
+cost_min = 1000
+cost_min_cherish = []
+
+for p in permutations:
+    cherish = list(p)
+    cherish.insert(0,(1,1))
+    cherish.append((19,19))
+    cost = 0
+    for j in range(len(cherish)-1):
+        cost += get_min_path(maze, cherish[j], cherish[j+1])
+    if cost_min > cost:
+        cost_min = cost
+        cost_min_cherish = cherish
+print('最短路径长度为', cost_min)
+
+for i in range(len(cost_min_cherish)-1):
+    Visual_path(maze,cost_min_cherish[i],cost_min_cherish[i+1],i)
+
+end_time = time.time()
+run_time = end_time - start_time
+print("程序运行时间为：{:.2f}秒".format(run_time))
+
+
+
