@@ -1,0 +1,1368 @@
+1.多颜色识别：红蓝绿
+import sensor, image, time
+
+#颜色识别LAB域值设定
+red_threshold   = (30, 100, 15, 127, 15, 127)
+green_threshold   = (20, 70, -127, -10, -64, 120)
+blue_threshold   = (10, 80, -96, 32, -100, -20)
+
+sensor.reset() #初始化摄像头
+sensor.set_pixformat(sensor.RGB565) #彩色方式
+sensor.set_framesize(sensor.LCD) #设置图像像素模式
+sensor.skip_frames(time = 2000) # 设置一定时间让新的设置生效。在更改设置后，跳过一些帧，等待感光元件变稳定。
+sensor.set_auto_gain(False) # 颜色跟踪必须关闭自动增益
+sensor.set_auto_whitebal(False) #关闭白平衡。
+sensor.set_auto_exposure(False,33333) #设置曝光,需要更改
+# sensor.set_windowing((100,100)) #设置子分辨率
+
+clock = time.clock() # 跟踪FPS帧率
+
+def find_MaxBlob(colour_blobs):#获取找到颜色的最大值函数
+    max_size = 0
+    for blob in colour_blobs:
+        if blob[2]*blob[3] > max_size: #blob[2]*blob[3]为面积
+            max_Blob = blob
+            max_size = blob[2]*blob[3]
+    return max_Blob
+
+while(True):
+    clock.tick() # 追踪两个snapshots()之间经过的毫秒数.
+    img = sensor.snapshot() # 拍一张照片并返回图像。
+    colour_blobs = img.find_blobs([red_threshold, green_threshold, blue_threshold], area_threshold=200)
+    #area_threshold=200为面积阀值可根据目标自由设置
+
+    #find_blobs(thresholds, invert=False, roi=Auto)
+    #（1）thresholds为颜色阈值，是一个元组，需要用括号［ ］括起来。
+    #（2）invert=1,反转颜色阈值，invert=False默认不反转。
+    #（3）roi设置颜色识别的视野区域，roi是一个元组， roi = (x, y, w, h)，代表从左上顶点(x,y)开始的宽为w高为h的矩形区域，roi不设置的话默认为整个图像视野。
+    '''
+        这个函数返回一个列表：
+        ［0］代表识别到的目标颜色区域左上顶点的x坐标，
+        ［1］代表左上顶点y坐标，
+        ［2］代表目标区域的宽，
+        ［3］代表目标区域的高，
+        ［4］代表目标区域像素点的个数，
+        ［5］代表目标区域的中心点x坐标，
+        ［6］代表目标区域中心点y坐标，
+        ［7］代表目标颜色区域的旋转角度（是弧度值，浮点型，列表其他元素是整型），
+        ［8］代表与此目标区域交叉的目标个数，
+        ［9］代表颜色的编号（它可以用来分辨这个区域是用哪个颜色阈值threshold识别出来的）。
+    '''
+
+    if colour_blobs: #如果识别到颜色
+        max_Blob =  find_MaxBlob(colour_blobs)  #获取最大值
+        img.draw_cross(max_Blob[5], max_Blob[6]) # cx, cy  画出中心
+        print(max_Blob[8])   #获取颜色对应32位二进制转换的数值：1红、2绿、4蓝
+
+    else:
+        pass
+
+        print("FPS %f" % clock.fps()) # 注意: 当连接电脑后，OpenMV会变成一半的速度。当不连接电脑，帧率会增加。
+
+
+
+
+2.红色瓶盖+测距
+import sensor, image, time
+
+#颜色识别LAB域值设定
+red_threshold   = (9, 35, 8, 52, -2, 32)
+
+
+sensor.reset() #初始化摄像头
+sensor.set_pixformat(sensor.RGB565) #彩色方式
+sensor.set_framesize(sensor.LCD) #设置图像像素模式
+sensor.skip_frames(time = 2000) # 设置一定时间让新的设置生效。在更改设置后，跳过一些帧，等待感光元件变稳定。
+sensor.set_auto_gain(False) # 颜色跟踪必须关闭自动增益
+sensor.set_auto_whitebal(False) #关闭白平衡。
+sensor.set_auto_exposure(False,33333) #设置曝光,需要更改
+# sensor.set_windowing((100,100)) #设置子分辨率
+
+clock = time.clock() # 跟踪FPS帧率
+K=200
+
+
+while(True):
+    clock.tick() # 追踪两个snapshots()之间经过的毫秒数.
+    img = sensor.snapshot() # 拍一张照片并返回图像。
+    #area_threshold=200为面积阀值可根据目标自由设置
+
+    #find_blobs(thresholds, invert=False, roi=Auto)
+    #（1）thresholds为颜色阈值，是一个元组，需要用括号［ ］括起来。
+    #（2）invert=1,反转颜色阈值，invert=False默认不反转。
+    #（3）roi设置颜色识别的视野区域，roi是一个元组， roi = (x, y, w, h)，代表从左上顶点(x,y)开始的宽为w高为h的矩形区域，roi不设置的话默认为整个图像视野。
+    '''
+        这个函数返回一个列表：
+        ［0］代表识别到的目标颜色区域左上顶点的x坐标，
+        ［1］代表左上顶点y坐标，
+        ［2］代表目标区域的宽，
+        ［3］代表目标区域的高，
+        ［4］代表目标区域像素点的个数，
+        ［5］代表目标区域的中心点x坐标，
+        ［6］代表目标区域中心点y坐标，
+        ［7］代表目标颜色区域的旋转角度（是弧度值，浮点型，列表其他元素是整型），
+        ［8］代表与此目标区域交叉的目标个数，
+        ［9］代表颜色的编号（它可以用来分辨这个区域是用哪个颜色阈值threshold识别出来的）。
+    '''
+    for blob in img.find_blobs([red_threshold], merge=True,area_threshold=200):
+        img.draw_rectangle(blob.rect())
+        img.draw_cross(blob.cx(),blob.cy())
+        Lm = (blob[2]+blob[3])/2
+        length = K/Lm
+        print(length)
+
+3.颜色组合判断宝藏类型
+import sensor, image, time
+
+#颜色识别LAB域值设定
+red_threshold   = (21, 41, 27, 55, 16, 48)
+green_threshold=(31, 36, -36, -22, 37, 49)
+yellow_threshold=(34, 60, -22, 14, 41, 67)
+blue_threshold=(21, 29, -9, 17, -48, -34)
+
+sensor.reset() #初始化摄像头
+sensor.set_pixformat(sensor.RGB565) #彩色方式
+sensor.set_framesize(sensor.LCD) #设置图像像素模式
+sensor.skip_frames(time = 2000) # 设置一定时间让新的设置生效。在更改设置后，跳过一些帧，等待感光元件变稳定。
+sensor.set_auto_gain(False) # 颜色跟踪必须关闭自动增益
+sensor.set_auto_whitebal(False) #关闭白平衡。
+sensor.set_auto_exposure(False,33333) #设置曝光,需要更改
+# sensor.set_windowing((100,100)) #设置子分辨率
+
+clock = time.clock() # 跟踪FPS帧率
+K=587.6
+num1=0
+num2=0
+num3=0
+num4=0
+
+def find_MaxBlob(colour_blobs):#获取找到颜色的最大值函数
+    max_size = 0
+    for blob in colour_blobs:
+        if blob[2]*blob[3] > max_size: #blob[2]*blob[3]为面积
+            max_Blob = blob
+            max_size = blob[2]*blob[3]
+    return max_Blob
+
+while(True):
+    sum=0
+    num=0
+    clock.tick() # 追踪两个snapshots()之间经过的毫秒数.
+    img = sensor.snapshot() # 拍一张照片并返回图像。
+    #area_threshold=200为面积阀值可根据目标自由设置
+    colour_blobs=img.find_blobs([red_threshold,green_threshold,yellow_threshold,blue_threshold],area_threshold=30)
+    #find_blobs(thresholds, invert=False, roi=Auto)
+    #（1）thresholds为颜色阈值，是一个元组，需要用括号［ ］括起来。
+    #（2）invert=1,反转颜色阈值，invert=False默认不反转。
+    #（3）roi设置颜色识别的视野区域，roi是一个元组， roi = (x, y, w, h)，代表从左上顶点(x,y)开始的宽为w高为h的矩形区域，roi不设置的话默认为整个图像视野。
+    '''
+        这个函数返回一个列表：
+        ［0］代表识别到的目标颜色区域左上顶点的x坐标，
+        ［1］代表左上顶点y坐标，
+        ［2］代表目标区域的宽，
+        ［3］代表目标区域的高，
+        ［4］代表目标区域像素点的个数，
+        ［5］代表目标区域的中心点x坐标，
+        ［6］代表目标区域中心点y坐标，
+        ［7］代表目标颜色区域的旋转角度（是弧度值，浮点型，列表其他元素是整型），
+        ［8］代表与此目标区域交叉的目标个数，
+        ［9］代表颜色的编号（它可以用来分辨这个区域是用哪个颜色阈值threshold识别出来的）。
+    '''
+    for blob in colour_blobs:
+        img.draw_rectangle(blob.rect())
+        img.draw_cross(blob.cx(),blob.cy())
+        Lm = (blob[2]+blob[3])/2
+        length = K/Lm
+        #print(length)
+        sum+=blob[8]
+        num+=1
+    if sum==12 and num==2:
+        num1+=1
+        num2=0
+        num3=0
+        num4=0
+        if num1==5:
+            num1=0
+            print('1')
+    if sum==10 and num==2:
+        num2+=1
+        num1=0
+        num3=0
+        num4=0
+        if num2==10:
+            num2=0
+            print('2')
+    if  sum==3 and num==2:
+        num3+=1
+        num1=0
+        num2=0
+        num4=0
+        if num3==10:
+            num3=0
+            print('3')
+    if sum==5 and num==2:
+        num4+=1
+        num1=0
+        num2=0
+        num3=0
+        if num4==10:
+            num4=0
+            print('4')
+
+
+4.颜色来判别敌我，形状来判别真假的一种方法（可优化）
+
+import sensor, image, time
+from pyb import Pin
+
+uart = UART(3, 19200)
+#颜色识别LAB域值设定
+red_threshold   = (6, 33, 8, 51, -1, 41)
+
+blue_threshold   = (10, 80, -96, 32, -100, -20)
+
+sensor.reset() #初始化摄像头
+sensor.set_pixformat(sensor.RGB565) #彩色方式
+sensor.set_framesize(sensor.LCD) #设置图像像素模式
+sensor.skip_frames(time = 2000) # 设置一定时间让新的设置生效。在更改设置后，跳过一些帧，等待感光元件变稳定。
+sensor.set_auto_gain(False) # 颜色跟踪必须关闭自动增益
+sensor.set_auto_whitebal(False) #关闭白平衡。
+sensor.set_auto_exposure(False,33333) #设置曝光,需要更改
+# sensor.set_windowing((100,100)) #设置子分辨率
+
+clock = time.clock() # 跟踪FPS帧率
+
+def find_MaxBlob(colour_blobs):#获取找到颜色的最大值函数
+    max_size = 0
+    for blob in colour_blobs:
+        if blob[2]*blob[3] > max_size: #blob[2]*blob[3]为面积
+            max_Blob = blob
+            max_size = blob[2]*blob[3]
+    return max_Blob
+num1=0
+num2=0
+while(True):
+    clock.tick() # 追踪两个snapshots()之间经过的毫秒数.
+    img = sensor.snapshot() # 拍一张照片并返回图像。
+    colour_blobs = img.find_blobs([red_threshold,blue_threshold], area_threshold=200)
+    #area_threshold=200为面积阀值可根据目标自由设置
+
+    #find_blobs(thresholds, invert=False, roi=Auto)
+    #（1）thresholds为颜色阈值，是一个元组，需要用括号［ ］括起来。
+    #（2）invert=1,反转颜色阈值，invert=False默认不反转。
+    #（3）roi设置颜色识别的视野区域，roi是一个元组， roi = (x, y, w, h)，代表从左上顶点(x,y)开始的宽为w高为h的矩形区域，roi不设置的话默认为整个图像视野。
+    '''
+        这个函数返回一个列表：
+        ［0］代表识别到的目标颜色区域左上顶点的x坐标，
+        ［1］代表左上顶点y坐标，
+        ［2］代表目标区域的宽，
+        ［3］代表目标区域的高，
+        ［4］代表目标区域像素点的个数，
+        ［5］代表目标区域的中心点x坐标，
+        ［6］代表目标区域中心点y坐标，
+        ［7］代表目标颜色区域的旋转角度（是弧度值，浮点型，列表其他元素是整型），
+        ［8］代表与此目标区域交叉的目标个数，
+        ［9］代表颜色的编号（它可以用来分辨这个区域是用哪个颜色阈值threshold识别出来的）。
+    '''
+
+    if colour_blobs: #如果识别到颜色
+        max_Blob =  find_MaxBlob(colour_blobs)  #获取最大值
+        img.draw_rectangle(max_Blob.rect())
+        img.draw_cross(max_Blob[5], max_Blob[6]) # cx, cy  画出中心
+        if max_Blob[8]==2:
+            img = img.lens_corr(1.8)
+            circles=img.find_circles(threshold = 3000, x_margin = 10, y_margin = 10, r_margin = 10,r_min = 5, r_max = 25, r_step = 2)
+            if(circles):
+                for c in circles:
+                    img.draw_circle(c.x(), c.y(), c.r(), color = (255, 0, 0))
+                    num1+=1
+                    num2=0
+                    if num1==5:
+                        print('蓝真')
+                        num1=1
+                        uart.write(num1)
+                        num1=0
+            else:
+                num1=0
+                num2+=1
+                if num2==8:
+                    num2=2
+                    print('蓝假')
+                    uart.write(num2)
+                    num2=0
+        if max_Blob[8]==1:
+            img = img.lens_corr(1.8)
+            circles=img.find_circles(threshold = 3000, x_margin = 10, y_margin = 10, r_margin = 10,r_min = 5, r_max = 25, r_step = 2)
+            if(circles):
+                for c in circles:
+                    img.draw_circle(c.x(), c.y(), c.r(), color = (255, 0, 0))
+                    num1+=1
+                    num2=0
+                    if num1==5:
+                        num1=3
+                        print('红假')
+                        uart.write(num1)
+                        num1=0
+            else:
+                num1=0
+                num2+=1
+                if num2==8:
+                    num2=4
+                    print('红真') 
+                    uart.write(num2)  
+                    num2=0              
+    else:
+        pass
+
+        #print("FPS %f" % clock.fps()) # 注意: 当连接电脑后，OpenMV会变成一半的速度。当不连接电脑，帧率会增加。
+
+
+
+
+5.双色识别/官方给的代码/需要调LAB参数
+
+# 多颜色组合识别
+#
+# 这个例子展示了使用OpenMV Cam进行多色代码跟踪。
+#
+# 颜色代码是由两种或更多颜色组成的色块。下面的例子只会跟踪其中有两种或多种颜色的彩色物体。
+
+import sensor, image, time
+
+# 颜色跟踪阈值(L Min, L Max, A Min, A Max, B Min, B Max)
+# 下面的阈值一般跟踪红色/绿色的东西。你可以调整它们…
+thresholds = [(60, 67, 32, 60, 33, 54), # generic_red_thresholds -> index is 0 so code == (1 << 0)
+              (85, 94, -52, -25, 31, 50), # generic_green_thresholds -> index is 1 so code == (1 << 1)
+              (71, 83, -26, -1, -43, -4),#blue
+              (92, 100, -21, -2, 29, 51)] # generic_yellow_thresholds -> index is 2 so code == (1 << 2)
+# 当“find_blobs”的“merge = True”时，code代码被组合在一起。
+
+sensor.reset()
+#初始化摄像头，reset()是sensor模块里面的函数
+
+sensor.set_pixformat(sensor.RGB565)
+#设置图像色彩格式，有RGB565色彩图和GRAYSCALE灰度图两种
+
+sensor.set_framesize(sensor.QVGA)
+#设置图像像素大小
+
+sensor.skip_frames(time = 2000)
+sensor.set_auto_gain(False) # 颜色跟踪必须关闭自动增益
+sensor.set_auto_whitebal(False) # 颜色跟踪必须关闭白平衡
+clock = time.clock()
+
+# 只有比“pixel_threshold”多的像素和多于“area_threshold”的区域才被
+# 下面的“find_blobs”返回。 如果更改相机分辨率，
+# 请更改“pixels_threshold”和“area_threshold”。 “merge = True”合并图像中所有重叠的色块。
+
+
+while(True):
+    clock.tick()
+    img = sensor.snapshot()
+    for blob in img.find_blobs(thresholds, pixels_threshold=20, area_threshold=20, merge=True):
+        if blob.code() == 12: # r/g code
+            img.draw_rectangle(blob.rect())
+            img.draw_cross(blob.cx(), blob.cy())
+            img.draw_string(blob.x() + 2, blob.y() + 2, "蓝/黄")
+            print("蓝/黄")
+        if blob.code() == 6: # r/b code
+            img.draw_rectangle(blob.rect())
+            img.draw_cross(blob.cx(), blob.cy())
+            img.draw_string(blob.x() + 2, blob.y() + 2, "蓝/绿")
+            print("蓝/绿")
+        if blob.code() == 5: # g/b code
+            img.draw_rectangle(blob.rect())
+            img.draw_cross(blob.cx(), blob.cy())
+            img.draw_string(blob.x() + 2, blob.y() + 2, "红/绿")
+            print("红/绿")
+        if blob.code() == 9: # r/g/b code
+            img.draw_rectangle(blob.rect())
+            img.draw_cross(blob.cx(), blob.cy())
+            img.draw_string(blob.x() + 2, blob.y() + 2, "红/黄")
+            print("红/黄")
+    print(clock.fps())# 多颜色组合识别
+#
+# 这个例子展示了使用OpenMV Cam进行多色代码跟踪。
+#
+# 颜色代码是由两种或更多颜色组成的色块。下面的例子只会跟踪其中有两种或多种颜色的彩色物体。
+
+import sensor, image, time
+
+# 颜色跟踪阈值(L Min, L Max, A Min, A Max, B Min, B Max)
+# 下面的阈值一般跟踪红色/绿色的东西。你可以调整它们…
+thresholds = [(60, 67, 32, 60, 33, 54), # generic_red_thresholds -> index is 0 so code == (1 << 0)
+              (85, 94, -52, -25, 31, 50), # generic_green_thresholds -> index is 1 so code == (1 << 1)
+              (71, 83, -26, -1, -43, -4),#blue
+              (92, 100, -21, -2, 29, 51)] # generic_yellow_thresholds -> index is 2 so code == (1 << 2)
+# 当“find_blobs”的“merge = True”时，code代码被组合在一起。
+
+sensor.reset()
+#初始化摄像头，reset()是sensor模块里面的函数
+
+sensor.set_pixformat(sensor.RGB565)
+#设置图像色彩格式，有RGB565色彩图和GRAYSCALE灰度图两种
+
+sensor.set_framesize(sensor.QVGA)
+#设置图像像素大小
+
+sensor.skip_frames(time = 2000)
+sensor.set_auto_gain(False) # 颜色跟踪必须关闭自动增益
+sensor.set_auto_whitebal(False) # 颜色跟踪必须关闭白平衡
+clock = time.clock()
+
+# 只有比“pixel_threshold”多的像素和多于“area_threshold”的区域才被
+# 下面的“find_blobs”返回。 如果更改相机分辨率，
+# 请更改“pixels_threshold”和“area_threshold”。 “merge = True”合并图像中所有重叠的色块。
+
+
+while(True):
+    clock.tick()
+    img = sensor.snapshot()
+    for blob in img.find_blobs(thresholds, pixels_threshold=20, area_threshold=20, merge=True):
+        if blob.code() == 12: # r/g code
+            img.draw_rectangle(blob.rect())
+            img.draw_cross(blob.cx(), blob.cy())
+            img.draw_string(blob.x() + 2, blob.y() + 2, "蓝/黄")
+            print("蓝/黄")
+        if blob.code() == 6: # r/b code
+            img.draw_rectangle(blob.rect())
+            img.draw_cross(blob.cx(), blob.cy())
+            img.draw_string(blob.x() + 2, blob.y() + 2, "蓝/绿")
+            print("蓝/绿")
+        if blob.code() == 5: # g/b code
+            img.draw_rectangle(blob.rect())
+            img.draw_cross(blob.cx(), blob.cy())
+            img.draw_string(blob.x() + 2, blob.y() + 2, "红/绿")
+            print("红/绿")
+        if blob.code() == 9: # r/g/b code
+            img.draw_rectangle(blob.rect())
+            img.draw_cross(blob.cx(), blob.cy())
+            img.draw_string(blob.x() + 2, blob.y() + 2, "红/黄")
+            print("红/黄")
+    print(clock.fps())
+
+
+
+6.在4的基础上增加了GPIO通信，把宝藏种类传给主控
+import sensor, image, time
+from pyb import Pin
+
+pin0 = Pin('P0', Pin.IN, Pin.PULL_UP)
+pin1 = Pin('P1', Pin.OUT_PP, Pin.PULL_NONE)
+pin2 = Pin('P2', Pin.OUT_PP, Pin.PULL_NONE)
+pin3 = Pin('P1', Pin.OUT_PP, Pin.PULL_NONE)
+
+#颜色识别LAB域值设定
+red_threshold   = (6, 33, 8, 51, -1, 41)
+
+blue_threshold   = (10, 80, -96, 32, -100, -20)
+
+sensor.reset() #初始化摄像头
+sensor.set_pixformat(sensor.RGB565) #彩色方式
+sensor.set_framesize(sensor.LCD) #设置图像像素模式
+sensor.skip_frames(time = 2000) # 设置一定时间让新的设置生效。在更改设置后，跳过一些帧，等待感光元件变稳定。
+sensor.set_auto_gain(False) # 颜色跟踪必须关闭自动增益
+sensor.set_auto_whitebal(False) #关闭白平衡。
+sensor.set_auto_exposure(False,33333) #设置曝光,需要更改
+# sensor.set_windowing((100,100)) #设置子分辨率
+
+clock = time.clock() # 跟踪FPS帧率
+
+def find_MaxBlob(colour_blobs):#获取找到颜色的最大值函数
+    max_size = 0
+    for blob in colour_blobs:
+        if blob[2]*blob[3] > max_size: #blob[2]*blob[3]为面积
+            max_Blob = blob
+            max_size = blob[2]*blob[3]
+    return max_Blob
+    
+    
+num1=0
+num2=0
+while(True):
+    clock.tick() # 追踪两个snapshots()之间经过的毫秒数.
+    img = sensor.snapshot() # 拍一张照片并返回图像。
+    colour_blobs = img.find_blobs([red_threshold,blue_threshold], area_threshold=200)
+    #area_threshold=200为面积阀值可根据目标自由设置
+
+    #find_blobs(thresholds, invert=False, roi=Auto)
+    #（1）thresholds为颜色阈值，是一个元组，需要用括号［ ］括起来。
+    #（2）invert=1,反转颜色阈值，invert=False默认不反转。
+    #（3）roi设置颜色识别的视野区域，roi是一个元组， roi = (x, y, w, h)，代表从左上顶点(x,y)开始的宽为w高为h的矩形区域，roi不设置的话默认为整个图像视野。
+    '''
+        这个函数返回一个列表：
+        ［0］代表识别到的目标颜色区域左上顶点的x坐标，
+        ［1］代表左上顶点y坐标，
+        ［2］代表目标区域的宽，
+        ［3］代表目标区域的高，
+        ［4］代表目标区域像素点的个数，
+        ［5］代表目标区域的中心点x坐标，
+        ［6］代表目标区域中心点y坐标，
+        ［7］代表目标颜色区域的旋转角度（是弧度值，浮点型，列表其他元素是整型），
+        ［8］代表与此目标区域交叉的目标个数，
+        ［9］代表颜色的编号（它可以用来分辨这个区域是用哪个颜色阈值threshold识别出来的）。
+    '''
+
+    if colour_blobs: #如果识别到颜色
+        max_Blob =  find_MaxBlob(colour_blobs)  #获取最大值
+        img.draw_rectangle(max_Blob.rect())
+        img.draw_cross(max_Blob[5], max_Blob[6]) # cx, cy  画出中心
+        if max_Blob[8]==2:
+            img = img.lens_corr(1.8)
+            circles=img.find_circles(threshold = 3000, x_margin = 10, y_margin = 10, r_margin = 10,r_min = 5, r_max = 25, r_step = 2)
+            if(circles):
+                for c in circles:
+                    img.draw_circle(c.x(), c.y(), c.r(), color = (255, 0, 0))
+                    num1+=1
+                    num2=0
+                    if num1==5:
+                        print('蓝真')
+                        pin1.value(not pin0.value())
+                        pin2.value(not pin0.value())
+                        pin3.value(pin0.value())
+                        num1=0
+            else:
+                num1=0
+                num2+=1
+                if num2==8:
+                    print('蓝假')
+                    pin1.value(not pin0.value())
+                    pin2.value(pin0.value())
+                    pin3.value(not pin0.value())
+                    num2=0
+        if max_Blob[8]==1:
+            img = img.lens_corr(1.8)
+            circles=img.find_circles(threshold = 3000, x_margin = 10, y_margin = 10, r_margin = 10,r_min = 5, r_max = 25, r_step = 2)
+            if(circles):
+                for c in circles:
+                    img.draw_circle(c.x(), c.y(), c.r(), color = (255, 0, 0))
+                    num1+=1
+                    num2=0
+                    if num1==5:
+                        print('红假')
+                        pin1.value(not pin0.value())
+                        pin2.value(pin0.value())
+                        pin3.value(pin0.value())
+                        num1=0
+            else:
+                num1=0
+                num2+=1
+                if num2==8:
+                    print('红真') 
+                    pin1.value(pin0.value())
+                    pin2.value(not pin0.value())
+                    pin3.value(not pin0.value())  
+                    num2=0              
+    else:
+        pin1.value(not pin0.value())
+        pin2.value(not pin0.value())
+        pin3.value(not pin0.value())
+        pass
+        #print("FPS %f" % clock.fps()) # 注意: 当连接电脑后，OpenMV会变成一半的速度。当不连接电脑，帧率会增加。
+
+
+7.18r的宝藏识别改进+未识别到的时候拉低的代码
+import sensor, image, pyb, time
+from pyb import Pin
+pin0 = Pin('P0', Pin.IN, Pin.PULL_UP)
+pin1 = Pin('P1', Pin.OUT_PP, Pin.PULL_NONE)
+pin2 = Pin('P2', Pin.OUT_PP, Pin.PULL_NONE)
+pin3 = Pin('P3', Pin.OUT_PP, Pin.PULL_NONE)
+led = pyb.LED(3)
+led.off()
+
+
+
+sensor.reset()
+sensor.set_pixformat(sensor.RGB565)
+sensor.set_framesize(sensor.VGA)
+sensor.skip_frames(10)
+
+
+red_thresholds = [(24, 48, 20, 55, 5, 45)]
+green_thresholds = [(19, 28, -37, -15, 14, 31)0]#  67, 51, -72, -32, -26, 42
+yellow_thresholds = [(41, 54, -15, 9, 46, 71)]
+blue_thresholds = [(27, 42, -12, 10, -37, -11)]
+def mmain():
+    img = sensor.snapshot()
+    for blob11 in img.find_blobs(red_thresholds, pixels_threshold=20, area_threshold=20,merge=True):
+        left_roi = [blob11.x(), blob11.y(), blob11.x()+blob11.w(), blob11.y()+blob11.h()]
+        for blob12 in img.find_blobs(green_thresholds,roi=left_roi, pixels_threshold=30, area_threshold=10,merge=True):
+            img.draw_rectangle(blob11.rect())
+            img.draw_string(blob11.x(),blob11.y(), "true red")
+            return '1'
+
+        for blob12 in img.find_blobs(yellow_thresholds,roi=left_roi, pixels_threshold=10, area_threshold=10,merge=True):
+            img.draw_rectangle(blob11.rect())
+            img.draw_string(blob12.x(),blob12.y(), "false red")
+            return '2'
+
+        #img.draw_rectangle(blob.rect())
+        #img.draw_cross(blob.cx(), blob.cy())
+        #print(blob.code())
+
+    for blob21 in img.find_blobs(blue_thresholds, pixels_threshold=20, area_threshold=20,merge=True):
+        left_roi = [blob21.x(), blob21.y(), blob21.x()+blob21.w(), blob21.y()+blob21.h()]
+        for blob22 in img.find_blobs(yellow_thresholds,roi=left_roi, pixels_threshold=10, area_threshold=10,merge=True):
+            img.draw_rectangle(blob21.rect())
+            img.draw_string(blob21.x(),blob21.y(), "true blue")
+            return '3'
+        for blob22 in img.find_blobs(green_thresholds,roi=left_roi, pixels_threshold=10, area_threshold=10,merge=True):
+            img.draw_rectangle(blob21.rect())
+            img.draw_string(blob22.x(),blob22.y(), "false blue")
+            return '4'
+        #img.draw_rectangle(blob.rect())
+        #img.draw_cross(blob.cx(), blob.cy())
+        #print(blob.code())
+    return 0
+num1=0
+num2=0
+num3=0
+num4=0
+
+while True:
+    count=mmain()
+    if count=='1':
+        num1=num1+1
+        num2=0
+        num3=0
+        num4=0
+        if num1==3:
+            print("true red")
+            pin1.value(pin0.value())
+            pin2.value(not pin0.value())
+            pin3.value(not pin0.value())    
+            led.on()
+            num1=0
+            
+    elif count=="2":
+        num1=0
+        num2=num2+1
+        num3=0
+        num4=0  
+        if num2==3:
+            print("false red")
+            pin1.value(not pin0.value())
+            pin2.value(pin0.value())
+            pin3.value(pin0.value())    
+            led.on()
+            num2=0
+    elif count=='3':
+        num1=0
+        num2=0  
+        num3=num3+1
+        num4=0
+        if num3==3:
+            print("true blue")
+            pin1.value(not pin0.value())
+            pin2.value(not pin0.value())
+            pin3.value(pin0.value())    
+            led.on()
+            num3=0
+    elif count=='4':
+        num1=0
+        num2=0
+        num3=0
+        num4=num4+1  
+        if num4==3:
+            print("false blue")
+            pin1.value(not pin0.value())
+            pin2.value(pin0.value())
+            pin3.value(not pin0.value())    
+            led.on()
+            num4=0
+    else:
+        pin1.value(not pin0.value())
+        pin2.value(not pin0.value())
+        pin3.value(not pin0.value()) 
+      
+
+8.整合了宝藏识别和避障识别
+import sensor
+import image
+import time
+from pyb import Pin, LED
+
+TRIGGER_THRESHOLD = 30
+
+BG_UPDATE_FRAMES = 5
+BG_UPDATE_BLEND = 128
+
+sensor.reset()
+sensor.set_pixformat(sensor.RGB565)
+sensor.set_framesize(sensor.QVGA)
+sensor.skip_frames(time=2000)
+sensor.set_auto_whitebal(False)
+clock = time.clock()
+
+extra_fb = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
+
+print("About to save background image...")
+sensor.skip_frames(time=10000)
+extra_fb.replace(sensor.snapshot())
+print("Saved background image - Now frame differencing!")
+
+triggered = False
+
+frame_count = 0
+
+pin0 = Pin('P0', Pin.IN, Pin.PULL_UP)
+pin1 = Pin('P1', Pin.OUT_PP, Pin.PULL_NONE)
+pin2 = Pin('P2', Pin.OUT_PP, Pin.PULL_NONE)
+pin3 = Pin('P3', Pin.OUT_PP, Pin.PULL_NONE)
+pin4 = Pin('P4', Pin.OUT_PP, Pin.PULL_NONE)
+pin5 = Pin('P5', Pin.OUT_PP, Pin.PULL_NONE)
+led = LED(3)
+led.off()
+
+red_thresholds = [(24, 48, 20, 55, 5, 45)]
+green_thresholds = [(19, 28, -37, -15, 14, 31)]
+yellow_thresholds = [(41, 54, -15, 9, 46, 71)]
+blue_thresholds = [(27, 42, -12, 10, -37, -11)]
+
+def mmain():
+    img = sensor.snapshot()
+    for blob11 in img.find_blobs(red_thresholds, pixels_threshold=20, area_threshold=20, merge=True):
+        left_roi = [blob11.x(), blob11.y(), blob11.x()+blob11.w(), blob11.y()+blob11.h()]
+        for blob12 in img.find_blobs(green_thresholds, roi=left_roi, pixels_threshold=30, area_threshold=10, merge=True):
+            img.draw_rectangle(blob11.rect())
+            img.draw_string(blob11.x(), blob11.y(), "true red")
+            return '1'
+
+        for blob12 in img.find_blobs(yellow_thresholds, roi=left_roi, pixels_threshold=10, area_threshold=10, merge=True):
+            img.draw_rectangle(blob11.rect())
+            img.draw_string(blob12.x(), blob12.y(), "false red")
+            return '2'
+
+    for blob21 in img.find_blobs(blue_thresholds, pixels_threshold=20, area_threshold=20, merge=True):
+        left_roi = [blob21.x(), blob21.y(), blob21.x()+blob21.w(), blob21.y()+blob21.h()]
+        for blob22 in img.find_blobs(yellow_thresholds, roi=left_roi, pixels_threshold=10, area_threshold=10, merge=True):
+            img.draw_rectangle(blob21.rect())
+            img.draw_string(blob21.x(), blob21.y(), "true blue")
+            return '3'
+        for blob22 in img.find_blobs(green_thresholds, roi=left_roi, pixels_threshold=10, area_threshold=10, merge=True):
+            img.draw_rectangle(blob21.rect())
+            img.draw_string(blob22.x(), blob22.y(), "false blue")
+            return '4'
+
+    return 0
+
+num1 = 0
+num2 = 0
+num3 = 0
+num4 = 0
+
+while True:
+    clock.tick()
+    img = sensor.snapshot()
+
+    frame_count += 1
+    if frame_count > BG_UPDATE_FRAMES:
+        frame_count = 0
+        img.blend(extra_fb, alpha=(256 - BG_UPDATE_BLEND))
+        extra_fb.replace(img)
+
+    img.difference(extra_fb)
+
+    hist = img.get_histogram()
+    diff = hist.get_percentile(0.99).l_value() - hist.get_percentile(0.90).l_value()
+    triggered = diff > TRIGGER_THRESHOLD
+
+    print("Frame changed:", triggered)  # 打印是否产生变化
+    if triggered:
+        pin5.value(pin0.value())
+        time.sleep(0.1)
+    pin5.value(not pin0.value())
+
+    while pin4.value():
+        count = mmain()
+        if count == '1':
+            num1 = num1 + 1
+            num2 = 0
+            num3 = 0
+            num4 = 0
+            if num1 == 3:
+                print("true red")
+                pin1.value(pin0.value())
+                pin2.value(not pin0.value())
+                pin3.value(not pin0.value())
+                led.on()
+                num1 = 0
+
+        elif count == "2":
+            num1 = 0
+            num2 = num2 + 1
+            num3 = 0
+            num4 = 0
+            if num2 == 3:
+                print("false red")
+                pin1.value(not pin0.value())
+                pin2.value(not pin0.value())
+                pin3.value(pin0.value())
+                led.on()
+                num2 = 0
+
+        elif count == '3':
+            num1 = 0
+            num2 = 0
+            num3 = num3 + 1
+            num4 = 0
+            if num3 == 3:
+                print("true blue")
+                pin1.value(not pin0.value())
+                pin2.value(pin0.value())
+                pin3.value(not pin0.value())
+                led.on()
+                num3 = 0
+
+        elif count == '4':
+            num1 = 0
+            num2 = 0
+            num3 = 0
+            num4 = num4 + 1
+            if num4 == 3:
+                print("false blue")
+                pin1.value(not pin0.value())
+                pin2.value(not pin0.value())
+                pin3.value(pin0.value())
+                led.on()
+                num4 = 0
+
+        else:
+            pin1.value(not pin0.value())
+            pin2.value(not pin0.value())
+            pin3.value(not pin0.value())
+
+    pin4.value(not pin0.value())
+
+9.整合宝藏识别+避障+路径重新规划
+import sensor
+import image
+import time
+from pyb import Pin, LED
+from pyb import UART
+
+TRIGGER_THRESHOLD = 30
+
+BG_UPDATE_FRAMES = 5
+BG_UPDATE_BLEND = 128
+uart = UART(3, 9600)  # UART 3为OpenMV上的UART口，波特率为9600
+
+sensor.reset()
+sensor.set_pixformat(sensor.RGB565)
+sensor.set_framesize(sensor.QVGA)
+sensor.skip_frames(time=2000)
+sensor.set_auto_whitebal(False)
+clock = time.clock()
+
+extra_fb = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
+
+print("About to save background image...")
+sensor.skip_frames(time=10000)
+extra_fb.replace(sensor.snapshot())
+print("Saved background image - Now frame differencing!")
+
+triggered = False
+
+frame_count = 0
+
+pin0 = Pin('P0', Pin.IN, Pin.PULL_UP)
+pin1 = Pin('P1', Pin.OUT_PP, Pin.PULL_NONE)
+pin2 = Pin('P2', Pin.OUT_PP, Pin.PULL_NONE)
+pin3 = Pin('P3', Pin.OUT_PP, Pin.PULL_NONE)
+pin4 = Pin('P4', Pin.OUT_PP, Pin.PULL_NONE)
+pin5 = Pin('P5', Pin.OUT_PP, Pin.PULL_NONE)
+led = LED(3)
+led.off()
+
+red_thresholds = [(24, 48, 20, 55, 5, 45)]
+green_thresholds = [(19, 28, -37, -15, 14, 31)]
+yellow_thresholds = [(41, 54, -15, 9, 46, 71)]
+blue_thresholds = [(27, 42, -12, 10, -37, -11)]
+
+
+
+maze = [
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+    [1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+    [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1],
+    [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
+    [1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1],
+    [1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+    [1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+    [1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1],
+    [1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1],
+    [1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1],
+    [1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1],
+    [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1],
+    [1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+    [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+    [1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+    [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1],
+    [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+]
+
+
+
+treasure_points = [(1, 7), (3, 11), (19, 13), (9, 7), (17, 9), (17, 3), (5, 5), (15, 15),(19,19)]
+
+
+def dfs(maze, start, end, visited, path):
+    if start == end:
+        path.append(start)
+        return True
+
+    visited[start[0]][start[1]] = True
+    path.append(start)
+
+    row, col = start
+
+    # 向上移动
+    if row > 0 and maze[row - 1][col] == 0 and not visited[row - 1][col]:
+        if dfs(maze, (row - 1, col), end, visited, path):
+            return True
+
+    # 向下移动
+    if row < len(maze) - 1 and maze[row + 1][col] == 0 and not visited[row + 1][col]:
+        if dfs(maze, (row + 1, col), end, visited, path):
+            return True
+
+    # 向左移动
+    if col > 0 and maze[row][col - 1] == 0 and not visited[row][col - 1]:
+        if dfs(maze, (row, col - 1), end, visited, path):
+            return True
+
+    # 向右移动
+    if col < len(maze[0]) - 1 and maze[row][col + 1] == 0 and not visited[row][col + 1]:
+        if dfs(maze, (row, col + 1), end, visited, path):
+            return True
+
+    path.pop()
+    return False
+
+def find_shortest_path(maze, start, end):
+    visited = [[False] * len(maze[0]) for _ in range(len(maze))]
+    path = []
+
+    if dfs(maze, start, end, visited, path):
+        return path
+    else:
+        return None
+
+def perform_path_planning(maze, treasure_points):
+    current_position = (1, 1)
+    paths = []
+
+    for treasure_point in treasure_points:
+        path = find_shortest_path(maze, current_position, treasure_point)
+
+        if path:
+            paths.append(path)
+            current_position = treasure_point
+        else:
+            print("No path found to treasure:", treasure_point)
+
+    return paths
+
+
+
+
+def mmain():
+    img = sensor.snapshot()
+    for blob11 in img.find_blobs(red_thresholds, pixels_threshold=20, area_threshold=20, merge=True):
+        left_roi = [blob11.x(), blob11.y(), blob11.x()+blob11.w(), blob11.y()+blob11.h()]
+        for blob12 in img.find_blobs(green_thresholds, roi=left_roi, pixels_threshold=30, area_threshold=10, merge=True):
+            img.draw_rectangle(blob11.rect())
+            img.draw_string(blob11.x(), blob11.y(), "true red")
+            return '1'
+
+        for blob12 in img.find_blobs(yellow_thresholds, roi=left_roi, pixels_threshold=10, area_threshold=10, merge=True):
+            img.draw_rectangle(blob11.rect())
+            img.draw_string(blob12.x(), blob12.y(), "false red")
+            return '2'
+
+    for blob21 in img.find_blobs(blue_thresholds, pixels_threshold=20, area_threshold=20, merge=True):
+        left_roi = [blob21.x(), blob21.y(), blob21.x()+blob21.w(), blob21.y()+blob21.h()]
+        for blob22 in img.find_blobs(yellow_thresholds, roi=left_roi, pixels_threshold=10, area_threshold=10, merge=True):
+            img.draw_rectangle(blob21.rect())
+            img.draw_string(blob21.x(), blob21.y(), "true blue")
+            return '3'
+        for blob22 in img.find_blobs(green_thresholds, roi=left_roi, pixels_threshold=10, area_threshold=10, merge=True):
+            img.draw_rectangle(blob21.rect())
+            img.draw_string(blob22.x(), blob22.y(), "false blue")
+            return '4'
+
+    return 0
+
+num1 = 0
+num2 = 0
+num3 = 0
+num4 = 0
+
+while True:
+    clock.tick()
+    img = sensor.snapshot()
+
+    frame_count += 1
+    if frame_count > BG_UPDATE_FRAMES:
+        frame_count = 0
+        img.blend(extra_fb, alpha=(256 - BG_UPDATE_BLEND))
+        extra_fb.replace(img)
+
+    img.difference(extra_fb)
+
+    hist = img.get_histogram()
+    diff = hist.get_percentile(0.99).l_value() - hist.get_percentile(0.90).l_value()
+    triggered = diff > TRIGGER_THRESHOLD
+
+    print("Frame changed:", triggered)  # 打印是否产生变化
+    if triggered:
+        pin5.value(pin0.value())
+        if uart.any():
+            data = uart.readline().decode().strip()  # 读取一行数据并解码
+            print("Received data:", data)
+        paths = perform_path_planning(maze, treasure_points)
+
+# 格式化打印路径
+        for i, path in enumerate(paths):
+            print("到第", i+1, "个宝藏的最短路径:", path)
+        time.sleep(0.1)
+    pin5.value(not pin0.value())
+
+    while pin4.value():
+        count = mmain()
+        if count == '1':
+            num1 = num1 + 1
+            num2 = 0
+            num3 = 0
+            num4 = 0
+            if num1 == 3:
+                print("true red")
+                pin1.value(pin0.value())
+                pin2.value(not pin0.value())
+                pin3.value(not pin0.value())
+                led.on()
+                num1 = 0
+
+        elif count == "2":
+            num1 = 0
+            num2 = num2 + 1
+            num3 = 0
+            num4 = 0
+            if num2 == 3:
+                print("false red")
+                pin1.value(not pin0.value())
+                pin2.value(not pin0.value())
+                pin3.value(pin0.value())
+                led.on()
+                num2 = 0
+
+        elif count == '3':
+            num1 = 0
+            num2 = 0
+            num3 = num3 + 1
+            num4 = 0
+            if num3 == 3:
+                print("true blue")
+                pin1.value(not pin0.value())
+                pin2.value(pin0.value())
+                pin3.value(not pin0.value())
+                led.on()
+                num3 = 0
+
+        elif count == '4':
+            num1 = 0
+            num2 = 0
+            num3 = 0
+            num4 = num4 + 1
+            if num4 == 3:
+                print("false blue")
+                pin1.value(not pin0.value())
+                pin2.value(not pin0.value())
+                pin3.value(pin0.value())
+                led.on()
+                num4 = 0
+
+        else:
+            pin1.value(not pin0.value())
+            pin2.value(not pin0.value())
+            pin3.value(not pin0.value())
+
+    pin4.value(not pin0.value())
+
+10.用深度学习代替颜色识别来寻宝
+import sensor, image, time, os, tf, uos, gc, json
+from pyb import Pin, LED
+from pyb import UART
+
+
+sensor.reset()                         # 重置并初始化传感器
+sensor.set_pixformat(sensor.RGB565)    # 设置像素格式为RGB565（或灰度图）
+sensor.set_framesize(sensor.QVGA)      # 设置帧大小为QVGA（320x240）
+sensor.skip_frames(time=2000)          # 等待相机自动调整
+
+net = "trained.tflite"
+labels = [line.rstrip('\n') for line in open("labels.txt")]
+
+try:
+    # 加载模型，如果加载后的模型文件占用的堆空间小于剩余的64K，则将模型文件加载到堆中
+    net = tf.load("trained.tflite", load_to_fb=uos.stat('trained.tflite')[6] > (gc.mem_free() - (64*1024)))
+except Exception as e:
+    print(e)
+    raise Exception('加载 "trained.tflite" 失败，请确保已将.tflite和labels.txt文件复制到存储设备上。(' + str(e) + ')')
+
+try:
+    labels = [line.rstrip('\n') for line in open("labels.txt")]
+except Exception as e:
+    raise Exception('加载 "labels.txt" 失败，请确保已将.tflite和labels.txt文件复制到存储设备上。(' + str(e) + ')')
+
+clock = time.clock()
+prediction_count = 0
+last_prediction = None
+
+
+
+
+TRIGGER_THRESHOLD = 30
+
+BG_UPDATE_FRAMES = 5
+BG_UPDATE_BLEND = 128
+uart = UART(3, 9600)  # UART 3为OpenMV上的UART口，波特率为9600
+
+sensor.reset()
+sensor.set_pixformat(sensor.RGB565)
+sensor.set_framesize(sensor.QVGA)
+sensor.skip_frames(time=2000)
+sensor.set_auto_whitebal(False)
+clock = time.clock()
+
+extra_fb = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
+
+print("About to save background image...")
+sensor.skip_frames(time=10000)
+extra_fb.replace(sensor.snapshot())
+print("Saved background image - Now frame differencing!")
+
+triggered = False
+
+frame_count = 0
+
+pin0 = Pin('P0', Pin.IN, Pin.PULL_UP)
+pin1 = Pin('P1', Pin.OUT_PP, Pin.PULL_NONE)
+pin2 = Pin('P2', Pin.OUT_PP, Pin.PULL_NONE)
+pin3 = Pin('P3', Pin.OUT_PP, Pin.PULL_NONE)
+pin4 = Pin('P4', Pin.OUT_PP, Pin.PULL_NONE)
+pin5 = Pin('P5', Pin.OUT_PP, Pin.PULL_NONE)
+led = LED(3)
+led.off()
+
+red_thresholds = [(24, 48, 20, 55, 5, 45)]
+green_thresholds = [(19, 28, -37, -15, 14, 31)]
+yellow_thresholds = [(41, 54, -15, 9, 46, 71)]
+blue_thresholds = [(27, 42, -12, 10, -37, -11)]
+
+
+
+maze = [
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+    [1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+    [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1],
+    [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
+    [1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1],
+    [1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+    [1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+    [1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1],
+    [1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1],
+    [1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1],
+    [1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1],
+    [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1],
+    [1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+    [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+    [1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+    [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1],
+    [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+]
+
+
+
+treasure_points = [(1, 7), (3, 11), (19, 13), (9, 7), (17, 9), (17, 3), (5, 5), (15, 15),(19,19)]
+
+
+def dfs(maze, start, end, visited, path):
+    if start == end:
+        path.append(start)
+        return True
+
+    visited[start[0]][start[1]] = True
+    path.append(start)
+
+    row, col = start
+
+    # 向上移动
+    if row > 0 and maze[row - 1][col] == 0 and not visited[row - 1][col]:
+        if dfs(maze, (row - 1, col), end, visited, path):
+            return True
+
+    # 向下移动
+    if row < len(maze) - 1 and maze[row + 1][col] == 0 and not visited[row + 1][col]:
+        if dfs(maze, (row + 1, col), end, visited, path):
+            return True
+
+    # 向左移动
+    if col > 0 and maze[row][col - 1] == 0 and not visited[row][col - 1]:
+        if dfs(maze, (row, col - 1), end, visited, path):
+            return True
+
+    # 向右移动
+    if col < len(maze[0]) - 1 and maze[row][col + 1] == 0 and not visited[row][col + 1]:
+        if dfs(maze, (row, col + 1), end, visited, path):
+            return True
+
+    path.pop()
+    return False
+
+def find_shortest_path(maze, start, end):
+    visited = [[False] * len(maze[0]) for _ in range(len(maze))]
+    path = []
+
+    if dfs(maze, start, end, visited, path):
+        return path
+    else:
+        return None
+
+def perform_path_planning(maze, treasure_points):
+    current_position = (1, 1)
+    paths = []
+
+    for treasure_point in treasure_points:
+        path = find_shortest_path(maze, current_position, treasure_point)
+
+        if path:
+            paths.append(path)
+            current_position = treasure_point
+        else:
+            print("No path found to treasure:", treasure_point)
+
+    return paths
+
+
+
+
+def mmain():
+    while True:
+        clock.tick()
+
+        img = sensor.snapshot()
+
+
+        # 进行图像分类
+        for obj in net.classify(img, min_scale=1.0, scale_mul=0.8, x_overlap=0.5, y_overlap=0.5):
+            print("**********\n检测结果 [x=%d,y=%d,w=%d,h=%d]" % obj.rect())
+            img.draw_rectangle(obj.rect())
+            # 将标签和置信度值组合成元组列表
+            predictions_list = list(zip(labels, obj.output()))
+            current_prediction=0
+
+            for i in range(len(predictions_list)):
+                if predictions_list[i][1]>predictions_list[current_prediction][1]:
+                    current_prediction=i
+                print("%s = %f" % (predictions_list[i][0], predictions_list[i][1]))
+            # 判断连续五次预测结果是否相同
+        if current_prediction == last_prediction:
+            prediction_count += 1
+            if prediction_count >= 3:
+                print("识别结果:", predictions_list[current_prediction][0])
+                # 在屏幕上显示概率和标签
+                img.draw_string(5, 10, "Prediction: %s" % predictions_list[current_prediction][0], color=(255, 255, 255), scale=1 )
+                img.draw_string(10, 40, "Probability: %.2f" % predictions_list[current_prediction][1], color=(255, 255, 255), scale=2)    
+                return current_predicion 
+        else:
+            prediction_count = 1
+
+        last_prediction = current_prediction
+        print(clock.fps(), "fps")
+
+while True:
+    clock.tick()
+    img = sensor.snapshot()
+
+    frame_count += 1
+    if frame_count > BG_UPDATE_FRAMES:
+        frame_count = 0
+        img.blend(extra_fb, alpha=(256 - BG_UPDATE_BLEND))
+        extra_fb.replace(img)
+
+    img.difference(extra_fb)
+
+    hist = img.get_histogram()
+    diff = hist.get_percentile(0.99).l_value() - hist.get_percentile(0.90).l_value()
+    triggered = diff > TRIGGER_THRESHOLD
+
+    print("Frame changed:", triggered)  # 打印是否产生变化
+    if triggered:
+        pin5.value(pin0.value())
+        if uart.any():
+            data = uart.readline().decode().strip()  # 读取一行数据并解码
+            print("Received data:", data)
+        paths = perform_path_planning(maze, treasure_points)
+
+# 格式化打印路径
+        for i, path in enumerate(paths):
+            print("到第", i+1, "个宝藏的最短路径:", path)
+        time.sleep(0.1)
+    pin5.value(not pin0.value())
+
+    while pin4.value():
+        count = mmain()
+        if count == 2:
+            print("true red")
+            pin1.value(pin0.value())
+            pin2.value(not pin0.value())
+            pin3.value(not pin0.value())
+            led.on()
+
+        elif count == 3:
+            print("false red")
+            pin1.value(not pin0.value())
+            pin2.value(not pin0.value())
+            pin3.value(pin0.value())
+            led.on()
+
+
+        elif count == 1:
+            print("true blue")
+            pin1.value(not pin0.value())
+            pin2.value(pin0.value())
+            pin3.value(not pin0.value())
+            led.on()
+
+
+        elif count ==0:
+            print("false blue")
+            pin1.value(not pin0.value())
+            pin2.value(not pin0.value())
+            pin3.value(pin0.value())
+            led.on()
+
+
+        else:
+            pin1.value(not pin0.value())
+            pin2.value(not pin0.value())
+            pin3.value(not pin0.value())
+
+    pin4.value(not pin0.value())
+
+
+
+
+
+
+
